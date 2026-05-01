@@ -22,11 +22,11 @@ Data se ukladaji do `localStorage` v prohlizeci. V appce je i export/import JSON
 
 1. Vytvor Supabase projekt.
 2. V SQL editoru spust `supabase-schema.sql`.
-3. Do `supabase-config.js` dopln `SUPABASE_URL` a `SUPABASE_ANON_KEY`.
+3. Do `supabase-config.js` dopln `SUPABASE_URL` a publishable key.
 4. Spust appku znovu. Prihlaseni/registrace se objevi automaticky.
 
-`SUPABASE_ANON_KEY` je verejny browserovy klic. Bezpecnost drzi Row Level
-Security policy v `supabase-schema.sql`.
+Publishable key je verejny browserovy klic. Bezpecnost drzi Row Level Security
+policy v `supabase-schema.sql`. `sb_secret` klic do frontend appky nikdy nedavej.
 
 ## Online zdarma
 

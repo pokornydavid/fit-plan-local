@@ -22,16 +22,16 @@ https://pokornydavid.github.io/fit-plan-local/
 6. Otevri Project Settings > API.
 7. Zkopiruj:
    - Project URL
-   - anon public key
+   - publishable key (`sb_publishable_...`)
 
 Do `supabase-config.js` dopln:
 
 ```js
 export const SUPABASE_URL = "TVOJE_PROJECT_URL";
-export const SUPABASE_ANON_KEY = "TVUJ_ANON_PUBLIC_KEY";
+export const SUPABASE_ANON_KEY = "TVUJ_PUBLISHABLE_KEY";
 ```
 
-Nikdy nepouzivej `service_role` klic ve frontend aplikaci.
+Nikdy nepouzivej `sb_secret` nebo `service_role` klic ve frontend aplikaci.
 
 ## 2. Supabase Auth URL
 
