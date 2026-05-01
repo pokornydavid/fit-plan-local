@@ -2042,7 +2042,7 @@ async function loadCloudWeek() {
   });
   state.weeks[state.weekStart] = week;
   data
-    .filter((row) => row.visibility === "friends")
+    .filter((row) => row.visibility === "friends" || toNumber(row.total_sets, 0) <= 0)
     .forEach((row) => markPendingWorkoutSync(row.week_start, row.day_index));
   await flushPendingSync();
 }
@@ -2086,6 +2086,7 @@ async function loadFeed() {
     .from("workout_days")
     .select("id,user_id,week_start,day_index,title,focus,payload,volume,completed_sets,total_sets,updated_at")
     .eq("visibility", "public")
+    .gt("total_sets", 0)
     .order("updated_at", { ascending: false })
     .limit(20);
 
@@ -2102,6 +2103,7 @@ async function loadLeaderboard() {
     .select("user_id,week_start,volume,completed_sets,total_sets")
     .eq("visibility", "public")
     .eq("week_start", state.weekStart)
+    .gt("total_sets", 0)
     .limit(200);
 
   if (error) {
@@ -2205,6 +2207,12 @@ async function saveDayToCloud(weekStart, dayIndex) {
     return;
   }
   const summary = summarizeDay(day);
+  if (summary.totalSets <= 0) {
+    await deleteDayFromCloud(weekStart, dayIndex);
+    clearPendingWorkoutSync(weekStart, dayIndex);
+    return;
+  }
+
   const payload = {
     exercises: day.exercises
   };
@@ -2228,6 +2236,17 @@ async function saveDayToCloud(weekStart, dayIndex) {
 
   if (error) throw error;
   clearPendingWorkoutSync(weekStart, dayIndex);
+}
+
+async function deleteDayFromCloud(weekStart, dayIndex) {
+  if (!cloud.client || !cloud.session) return;
+  const { error } = await cloud.client
+    .from("workout_days")
+    .delete()
+    .eq("user_id", cloud.session.user.id)
+    .eq("week_start", weekStart)
+    .eq("day_index", Number(dayIndex));
+  if (error) throw error;
 }
 
 function rowToDay(row) {
