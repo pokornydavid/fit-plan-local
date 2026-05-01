@@ -1,4 +1,5 @@
 const STORAGE_KEY = "fit-plan-local-v1";
+const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const DAY_LABELS = [
   ["Po", "Pondeli"],
@@ -31,6 +32,8 @@ let toastTimer = 0;
 let cloudSyncTimer = 0;
 let nutritionSyncTimer = 0;
 let exerciseDrag = null;
+let pendingSync = loadPendingSync();
+let flushingPendingSync = false;
 let cloud = {
   ready: false,
   configured: false,
@@ -56,6 +59,8 @@ app.addEventListener("pointerdown", handlePointerDown);
 window.addEventListener("pointermove", handlePointerMove);
 window.addEventListener("pointerup", handlePointerUp);
 window.addEventListener("pointercancel", cancelExerciseDrag);
+window.addEventListener("pagehide", handlePageHide);
+document.addEventListener("visibilitychange", handleVisibilityChange);
 importFile.addEventListener("change", handleImport);
 
 boot();
@@ -71,6 +76,7 @@ async function boot() {
   render();
   await initSupabase();
   if (cloud.session) {
+    await flushPendingSync();
     await loadCloudData();
     saveLocal();
   }
@@ -100,6 +106,7 @@ async function initSupabase() {
       cloud.session = session;
       if (session) {
         await ensureProfile();
+        await flushPendingSync();
         await loadCloudData();
         saveLocal();
         showToast("Jsi prihlaseny.");
@@ -226,12 +233,81 @@ function normalizeSet(set) {
 
 function save() {
   saveLocal();
+  if (state.activeView === "nutrition") {
+    markPendingNutritionSync();
+    scheduleNutritionSync();
+    return;
+  }
+  markPendingWorkoutSync();
   scheduleCloudSync();
-  scheduleNutritionSync();
 }
 
 function saveLocal() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function createEmptyPendingSync() {
+  return {
+    workouts: {},
+    nutrition: {}
+  };
+}
+
+function loadPendingSync() {
+  try {
+    const raw = localStorage.getItem(PENDING_SYNC_KEY);
+    if (!raw) return createEmptyPendingSync();
+    const parsed = JSON.parse(raw);
+    return {
+      workouts: parsed?.workouts && typeof parsed.workouts === "object" ? parsed.workouts : {},
+      nutrition: parsed?.nutrition && typeof parsed.nutrition === "object" ? parsed.nutrition : {}
+    };
+  } catch {
+    return createEmptyPendingSync();
+  }
+}
+
+function savePendingSync() {
+  localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(pendingSync));
+}
+
+function workoutPendingKey(weekStart, dayIndex) {
+  return `${weekStart}:${dayIndex}`;
+}
+
+function markPendingWorkoutSync(weekStart = state.weekStart, dayIndex = state.selectedDay) {
+  pendingSync.workouts[workoutPendingKey(weekStart, dayIndex)] = {
+    weekStart,
+    dayIndex: Number(dayIndex),
+    updatedAt: new Date().toISOString()
+  };
+  savePendingSync();
+}
+
+function markPendingNutritionSync(weekStart = state.weekStart) {
+  pendingSync.nutrition[weekStart] = {
+    weekStart,
+    updatedAt: new Date().toISOString()
+  };
+  savePendingSync();
+}
+
+function clearPendingWorkoutSync(weekStart, dayIndex) {
+  delete pendingSync.workouts[workoutPendingKey(weekStart, dayIndex)];
+  savePendingSync();
+}
+
+function clearPendingNutritionSync(weekStart) {
+  delete pendingSync.nutrition[weekStart];
+  savePendingSync();
+}
+
+function hasPendingWorkoutsForWeek(weekStart) {
+  return Object.values(pendingSync.workouts).some((item) => item.weekStart === weekStart);
+}
+
+function hasPendingNutritionForWeek(weekStart) {
+  return Boolean(pendingSync.nutrition[weekStart]);
 }
 
 function createDefaultLibrary() {
@@ -1138,6 +1214,7 @@ async function handleClick(event) {
     state.activeView = nextView;
     saveLocal();
     render();
+    await flushPendingSync();
     if (nextView === "nutrition") await loadCloudNutritionWeek();
     if (nextView === "feed" || nextView === "leaderboard") await loadSocialData();
     if (nextView === "nutrition") saveLocal();
@@ -1179,6 +1256,7 @@ async function handleClick(event) {
     ensureNutritionWeek();
     saveLocal();
     render();
+    await flushPendingSync();
     await loadCloudWeek();
     await loadCloudNutritionWeek();
     await loadSocialData();
@@ -1195,6 +1273,7 @@ async function handleClick(event) {
     ensureNutritionWeek();
     saveLocal();
     render();
+    await flushPendingSync();
     await loadCloudWeek();
     await loadCloudNutritionWeek();
     await loadSocialData();
@@ -1533,6 +1612,17 @@ function handleChange(event) {
   if (shouldRender) render();
 }
 
+function handlePageHide() {
+  saveLocal();
+  flushPendingSync();
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState !== "hidden") return;
+  saveLocal();
+  flushPendingSync();
+}
+
 function handlePointerDown(event) {
   const handle = event.target.closest("[data-drag-exercise-id]");
   if (!handle || event.button > 0) return;
@@ -1705,6 +1795,9 @@ async function loadCloudData() {
 
 async function loadCloudWeek() {
   if (!cloud.client || !cloud.session) return;
+  if (!flushingPendingSync && hasPendingWorkoutsForWeek(state.weekStart)) {
+    await flushPendingSync();
+  }
   cloud.loading = true;
   const { data, error } = await cloud.client
     .from("workout_days")
@@ -1730,6 +1823,9 @@ async function loadCloudWeek() {
 
 async function loadCloudNutritionWeek() {
   if (!cloud.client || !cloud.session) return;
+  if (!flushingPendingSync && hasPendingNutritionForWeek(state.weekStart)) {
+    await flushPendingSync();
+  }
   const { data, error } = await cloud.client
     .from("nutrition_weeks")
     .select("*")
@@ -1829,7 +1925,7 @@ function scheduleCloudSync() {
       console.warn(error);
       showCloudError("Cloud ulozeni se nepovedlo.", error);
     });
-  }, 650);
+  }, 250);
 }
 
 function scheduleNutritionSync() {
@@ -1840,12 +1936,45 @@ function scheduleNutritionSync() {
       console.warn(error);
       showCloudError("Nutrition cloud ulozeni se nepovedlo.", error);
     });
-  }, 650);
+  }, 250);
+}
+
+async function flushPendingSync() {
+  if (flushingPendingSync || !cloud.client || !cloud.session) return;
+
+  const workoutItems = Object.values(pendingSync.workouts);
+  const nutritionItems = Object.values(pendingSync.nutrition);
+  if (!workoutItems.length && !nutritionItems.length) return;
+
+  flushingPendingSync = true;
+  try {
+    for (const item of workoutItems) {
+      await saveDayToCloud(item.weekStart, Number(item.dayIndex));
+    }
+    for (const item of nutritionItems) {
+      await saveNutritionWeekToCloud(item.weekStart);
+    }
+  } catch (error) {
+    console.warn(error);
+    showCloudError("Neulozene zmeny se nepodarilo dosynchronizovat.", error);
+  } finally {
+    flushingPendingSync = false;
+  }
 }
 
 async function saveSelectedDayToCloud() {
   if (!cloud.client || !cloud.session) return;
-  const day = ensureWeek()[state.selectedDay];
+  await saveDayToCloud(state.weekStart, state.selectedDay);
+  if (state.activeView !== "plan") await loadSocialData();
+}
+
+async function saveDayToCloud(weekStart, dayIndex) {
+  if (!cloud.client || !cloud.session) return;
+  const day = state.weeks[weekStart]?.[dayIndex];
+  if (!day) {
+    clearPendingWorkoutSync(weekStart, dayIndex);
+    return;
+  }
   const summary = summarizeDay(day);
   const payload = {
     exercises: day.exercises
@@ -1855,8 +1984,8 @@ async function saveSelectedDayToCloud() {
     .from("workout_days")
     .upsert({
       user_id: cloud.session.user.id,
-      week_start: state.weekStart,
-      day_index: state.selectedDay,
+      week_start: weekStart,
+      day_index: Number(dayIndex),
       title: day.title || "",
       focus: day.focus || "",
       notes: day.notes || "",
@@ -1869,7 +1998,7 @@ async function saveSelectedDayToCloud() {
     }, { onConflict: "user_id,week_start,day_index" });
 
   if (error) throw error;
-  if (state.activeView !== "plan") await loadSocialData();
+  clearPendingWorkoutSync(weekStart, dayIndex);
 }
 
 function rowToDay(row) {
@@ -1885,14 +2014,22 @@ function rowToDay(row) {
 }
 
 async function saveNutritionToCloud() {
+  await saveNutritionWeekToCloud(state.weekStart);
+}
+
+async function saveNutritionWeekToCloud(weekStart) {
   if (!cloud.client || !cloud.session) return;
-  const nutrition = ensureNutritionWeek();
+  const nutrition = state.nutrition[weekStart];
+  if (!nutrition) {
+    clearPendingNutritionSync(weekStart);
+    return;
+  }
   const summary = summarizeNutrition(nutrition);
   const { error } = await cloud.client
     .from("nutrition_weeks")
     .upsert({
       user_id: cloud.session.user.id,
-      week_start: state.weekStart,
+      week_start: weekStart,
       payload: nutrition,
       calories: summary.totalCalories,
       protein: summary.totalProtein,
@@ -1903,6 +2040,7 @@ async function saveNutritionToCloud() {
     }, { onConflict: "user_id,week_start" });
 
   if (error) throw error;
+  clearPendingNutritionSync(weekStart);
 }
 
 function updateNutritionDay(input) {
