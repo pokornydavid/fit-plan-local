@@ -1003,7 +1003,7 @@ button:disabled {
   transform: translateX(-50%) translateY(0);
 }
 
-@media (max-width: 1920px) {
+@media (max-width: 1500px) {
   .topbar {
     grid-template-columns: 1fr;
     align-items: start;
@@ -1016,14 +1016,14 @@ button:disabled {
   }
 
   .center-stack {
-    justify-items: start;
-    max-width: none;
-    margin: 0;
+    justify-items: center;
+    max-width: 620px;
+    margin: 0 auto;
   }
 
   .week-switcher,
   .top-actions {
-    justify-content: flex-start;
+    justify-content: center;
   }
 }
 
@@ -1034,11 +1034,11 @@ button:disabled {
 
   .week-switcher,
   .top-actions {
-    justify-content: flex-start;
+    justify-content: center;
   }
 
   .center-stack {
-    justify-items: start;
+    justify-items: center;
   }
 
   .shell {
