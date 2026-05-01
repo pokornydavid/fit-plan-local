@@ -1,4 +1,5 @@
 const STORAGE_KEY = "fit-plan-local-v1";
+const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const DAY_LABELS = [
   ["Po", "Pondeli"],
   ["Ut", "Utery"],
@@ -23,6 +24,19 @@ const MUSCLES = [
 
 let state = loadState();
 let toastTimer = 0;
+let cloudSyncTimer = 0;
+let cloud = {
+  ready: false,
+  configured: false,
+  client: null,
+  session: null,
+  profile: null,
+  feed: [],
+  leaderboard: [],
+  status: "local",
+  message: "Supabase neni pripojeny. Appka zatim uklada lokalne.",
+  loading: false
+};
 
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
@@ -31,14 +45,64 @@ const importFile = document.querySelector("#importFile");
 app.addEventListener("click", handleClick);
 app.addEventListener("input", handleInput);
 app.addEventListener("change", handleChange);
+app.addEventListener("submit", handleSubmit);
 importFile.addEventListener("change", handleImport);
 
-applyTheme();
-render();
+boot();
 
 function uid() {
   if (crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function boot() {
+  applyTheme();
+  registerServiceWorker();
+  render();
+  await initSupabase();
+  if (cloud.session) await loadCloudData();
+  render();
+}
+
+async function initSupabase() {
+  try {
+    const config = await import("./supabase-config.js");
+    if (!config.SUPABASE_URL || !config.SUPABASE_ANON_KEY) {
+      cloud.ready = true;
+      cloud.configured = false;
+      return;
+    }
+
+    const { createClient } = await import(SUPABASE_MODULE_URL);
+    cloud.client = createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY);
+    cloud.configured = true;
+    cloud.status = "auth";
+    cloud.message = "Supabase je pripraveny.";
+
+    const { data } = await cloud.client.auth.getSession();
+    cloud.session = data.session;
+    if (cloud.session) await ensureProfile();
+
+    cloud.client.auth.onAuthStateChange(async (_event, session) => {
+      cloud.session = session;
+      if (session) {
+        await ensureProfile();
+        await loadCloudData();
+        showToast("Jsi prihlaseny.");
+      } else {
+        cloud.profile = null;
+        cloud.feed = [];
+        cloud.leaderboard = [];
+      }
+      render();
+    });
+  } catch (error) {
+    cloud.status = "local";
+    cloud.message = "Supabase se nepodarilo nacist. Lokalni rezim zustava aktivni.";
+    console.warn(error);
+  } finally {
+    cloud.ready = true;
+  }
 }
 
 function loadState() {
@@ -56,6 +120,7 @@ function createDefaultState() {
   const weekStart = toDateInput(getWeekStart(new Date()));
   return {
     theme: "dark",
+    activeView: "plan",
     selectedDay: getDayIndex(new Date()),
     weekStart,
     weeks: {
@@ -68,6 +133,7 @@ function createDefaultState() {
 function normalizeState(value, fallback = createDefaultState()) {
   const next = {
     theme: value?.theme === "light" ? "light" : "dark",
+    activeView: ["plan", "feed", "leaderboard"].includes(value?.activeView) ? value.activeView : "plan",
     selectedDay: Number.isInteger(value?.selectedDay) ? value.selectedDay : fallback.selectedDay,
     weekStart: value?.weekStart || fallback.weekStart,
     weeks: value?.weeks && typeof value.weeks === "object" ? value.weeks : fallback.weeks,
@@ -98,6 +164,7 @@ function normalizeWeek(week) {
       title: String(source.title || ""),
       focus: String(source.focus || ""),
       notes: String(source.notes || ""),
+      visibility: ["private", "friends", "public"].includes(source.visibility) ? source.visibility : "friends",
       exercises: Array.isArray(source.exercises)
         ? source.exercises.map(normalizeExercise)
         : []
@@ -129,6 +196,11 @@ function normalizeSet(set) {
 }
 
 function save() {
+  saveLocal();
+  scheduleCloudSync();
+}
+
+function saveLocal() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
@@ -180,6 +252,7 @@ function createBlankWeek() {
         title: "",
         focus: "",
         notes: "",
+        visibility: "friends",
         exercises: []
       }
     ])
@@ -279,6 +352,20 @@ function render() {
   const selected = week[state.selectedDay];
   const summary = summarizeWeek(week);
   const daySummary = summarizeDay(selected);
+  const lockedForAuth = cloud.configured && !cloud.session;
+  const content = lockedForAuth
+    ? renderAuthShell()
+    : state.activeView === "feed"
+      ? renderFeedShell()
+      : state.activeView === "leaderboard"
+        ? renderLeaderboardShell()
+        : `
+          <div class="shell">
+            ${renderWeekPanel(week)}
+            ${renderDayWorkspace(selected, daySummary)}
+            ${renderSidePanel(summary, daySummary)}
+          </div>
+        `;
 
   app.innerHTML = `
     <div class="app">
@@ -287,35 +374,193 @@ function render() {
           <div class="brand-mark" aria-hidden="true">FP</div>
           <div>
             <h1>Fit plan</h1>
-            <span>Localhost</span>
+            <span>${cloud.configured ? "Cloud beta" : "Localhost"}</span>
           </div>
         </div>
-        <div class="week-switcher" aria-label="Vyber tydne">
-          <button class="icon-btn" data-action="prev-week" title="Predchozi tyden" aria-label="Predchozi tyden">&lt;</button>
-          <div class="week-label">
-            <strong>${weekRangeLabel(state.weekStart)}</strong>
-            <span>${summary.completed}/${summary.totalSets} serii hotovo</span>
+        <div class="center-stack">
+          <nav class="view-tabs" aria-label="Hlavni navigace">
+            ${renderViewButton("plan", "Plan")}
+            ${renderViewButton("feed", "Feed")}
+            ${renderViewButton("leaderboard", "Leaderboard")}
+          </nav>
+          <div class="week-switcher" aria-label="Vyber tydne">
+            <button class="icon-btn" data-action="prev-week" title="Predchozi tyden" aria-label="Predchozi tyden">&lt;</button>
+            <div class="week-label">
+              <strong>${weekRangeLabel(state.weekStart)}</strong>
+              <span>${summary.completed}/${summary.totalSets} serii hotovo</span>
+            </div>
+            <button class="icon-btn" data-action="next-week" title="Dalsi tyden" aria-label="Dalsi tyden">&gt;</button>
+            <button class="btn" data-action="today">Dnes</button>
           </div>
-          <button class="icon-btn" data-action="next-week" title="Dalsi tyden" aria-label="Dalsi tyden">&gt;</button>
-          <button class="btn" data-action="today">Dnes</button>
         </div>
         <div class="top-actions">
+          ${renderCloudBadge()}
           <button class="btn theme-toggle" data-action="toggle-theme" aria-pressed="${state.theme === "dark"}" title="Prepnout rezim">
             <span class="theme-dot" aria-hidden="true"></span>
             ${state.theme === "dark" ? "Tmavy" : "Svetly"}
           </button>
-          <button class="btn" data-action="copy-prev-week">Kopirovat minuly</button>
-          <button class="btn warn" data-action="sample-week">Ukazkovy plan</button>
+          ${cloud.session ? `<button class="btn" data-action="sign-out">Odhlasit</button>` : ""}
+          ${state.activeView === "plan" && !lockedForAuth ? `
+            <button class="btn" data-action="copy-prev-week">Kopirovat minuly</button>
+            <button class="btn warn" data-action="sample-week">Ukazkovy plan</button>
+          ` : ""}
         </div>
       </header>
-      <div class="shell">
-        ${renderWeekPanel(week)}
-        ${renderDayWorkspace(selected, daySummary)}
-        ${renderSidePanel(summary, daySummary)}
-      </div>
+      ${content}
     </div>
   `;
   save();
+}
+
+function renderViewButton(view, label) {
+  const active = state.activeView === view ? " active" : "";
+  return `<button class="view-tab${active}" data-action="set-view" data-view="${view}">${label}</button>`;
+}
+
+function renderCloudBadge() {
+  if (cloud.session) {
+    return `<span class="cloud-badge online">${escapeHtml(profileName())}</span>`;
+  }
+  if (cloud.configured) return `<span class="cloud-badge auth">Login ready</span>`;
+  return `<span class="cloud-badge local">Local</span>`;
+}
+
+function renderAuthShell() {
+  return `
+    <main class="auth-shell">
+      <section class="auth-panel">
+        <div>
+          <p class="eyebrow">Fit Plan Cloud</p>
+          <h2>Prihlaseni pro tebe a kamose</h2>
+          <p class="auth-copy">Po prihlaseni se treningy ukladaji do Supabase, daji se sdilet do feedu a pocitaji se do leaderboardu.</p>
+        </div>
+        <div class="auth-grid">
+          <form class="auth-card" data-auth-form="sign-in">
+            <h3>Prihlasit</h3>
+            <input class="input" name="email" type="email" autocomplete="email" placeholder="Email" required>
+            <input class="input" name="password" type="password" autocomplete="current-password" placeholder="Heslo" required>
+            <button class="btn primary" type="submit">Prihlasit</button>
+          </form>
+          <form class="auth-card" data-auth-form="sign-up">
+            <h3>Registrace</h3>
+            <input class="input" name="email" type="email" autocomplete="email" placeholder="Email" required>
+            <input class="input" name="password" type="password" autocomplete="new-password" minlength="6" placeholder="Heslo min. 6 znaku" required>
+            <button class="btn primary" type="submit">Vytvorit ucet</button>
+          </form>
+        </div>
+      </section>
+    </main>
+  `;
+}
+
+function renderFeedShell() {
+  return `
+    <main class="social-shell">
+      <section class="social-main">
+        <div class="social-head">
+          <div>
+            <p class="eyebrow">Community feed</p>
+            <h2>Co se jelo dneska</h2>
+          </div>
+          <button class="btn" data-action="refresh-social">Refresh</button>
+        </div>
+        ${renderCloudSetupNotice()}
+        <div class="feed-list">
+          ${cloud.feed.length ? cloud.feed.map(renderFeedCard).join("") : renderSocialEmpty("Zatim tu neni zadny public trening.")}
+        </div>
+      </section>
+    </main>
+  `;
+}
+
+function renderLeaderboardShell() {
+  return `
+    <main class="social-shell">
+      <section class="social-main">
+        <div class="social-head">
+          <div>
+            <p class="eyebrow">Leaderboard</p>
+            <h2>Tydenni vykon</h2>
+          </div>
+          <button class="btn" data-action="refresh-social">Refresh</button>
+        </div>
+        ${renderCloudSetupNotice()}
+        <div class="leaderboard">
+          ${cloud.leaderboard.length ? cloud.leaderboard.map(renderLeaderboardRow).join("") : renderSocialEmpty("Leaderboard se naplni z public treningu.")}
+        </div>
+      </section>
+    </main>
+  `;
+}
+
+function renderCloudSetupNotice() {
+  if (cloud.configured) return "";
+  return `
+    <div class="setup-notice">
+      <strong>Cloud jeste neni zapnuty.</strong>
+      <span>Dopln Supabase URL a anon key do <code>supabase-config.js</code>, potom spust SQL ze <code>supabase-schema.sql</code>.</span>
+    </div>
+  `;
+}
+
+function renderSocialEmpty(message) {
+  return `
+    <div class="empty social-empty">
+      <div>
+        <strong>${escapeHtml(message)}</strong>
+        <div class="microcopy">U treningu nastav viditelnost na Public a po ulozeni se objevi tady.</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderFeedCard(row) {
+  const profile = row.profile || {};
+  const dayLabel = DAY_LABELS[row.day_index]?.[1] || "Den";
+  const title = row.title || dayLabel;
+  return `
+    <article class="feed-card">
+      <div class="feed-top">
+        <div>
+          <strong>${escapeHtml(profile.display_name || profile.username || "Sportovec")}</strong>
+          <span>${escapeHtml(formatCloudDate(row.updated_at))}</span>
+        </div>
+        <span class="pill done">${formatNumber(row.volume)} kg</span>
+      </div>
+      <h3>${escapeHtml(title)}</h3>
+      <p>${escapeHtml(row.focus || "Trenink")}</p>
+      <div class="feed-stats">
+        <span>${row.completed_sets}/${row.total_sets} serii</span>
+        <span>${escapeHtml(dayLabel)}</span>
+        <span>${escapeHtml(row.week_start)}</span>
+      </div>
+      ${renderFeedExercises(row.payload?.exercises || [])}
+    </article>
+  `;
+}
+
+function renderFeedExercises(exercises) {
+  if (!exercises.length) return "";
+  return `
+    <div class="feed-exercises">
+      ${exercises.slice(0, 4).map((exercise) => `
+        <span>${escapeHtml(exercise.name)} · ${exercise.sets?.length || 0}x</span>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderLeaderboardRow(row, index) {
+  return `
+    <div class="leader-row">
+      <span class="leader-rank">${index + 1}</span>
+      <div>
+        <strong>${escapeHtml(row.name)}</strong>
+        <span>${row.trainingDays} dny · ${row.completedSets}/${row.totalSets} serii</span>
+      </div>
+      <strong>${formatNumber(row.volume)} kg</strong>
+    </div>
+  `;
 }
 
 function renderWeekPanel(week) {
@@ -360,6 +605,12 @@ function renderDayWorkspace(day, summary) {
           <label class="field">
             <span>Zamereni</span>
             <input class="input" data-field="day-focus" value="${escapeAttr(day.focus)}" placeholder="Partie nebo cil">
+          </label>
+          <label class="field">
+            <span>Viditelnost</span>
+            <select class="select" data-field="day-visibility">
+              ${renderVisibilityOptions(day.visibility || "friends")}
+            </select>
           </label>
           <button class="btn danger" data-action="clear-day">Vycistit den</button>
         </div>
@@ -511,13 +762,44 @@ function renderMuscleOptions(selected) {
   )).join("");
 }
 
-function handleClick(event) {
+function renderVisibilityOptions(selected) {
+  const items = [
+    ["private", "Private"],
+    ["friends", "Friends"],
+    ["public", "Public"]
+  ];
+  return items.map(([value, label]) => (
+    `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`
+  )).join("");
+}
+
+async function handleClick(event) {
   const target = event.target.closest("[data-action]");
   if (!target) return;
 
   const action = target.dataset.action;
   const week = ensureWeek();
   const day = week[state.selectedDay];
+
+  if (action === "set-view") {
+    state.activeView = target.dataset.view;
+    if (state.activeView !== "plan") await loadSocialData();
+    render();
+    return;
+  }
+
+  if (action === "sign-out") {
+    if (cloud.client) await cloud.client.auth.signOut();
+    showToast("Odhlaseno.");
+    return;
+  }
+
+  if (action === "refresh-social") {
+    await loadSocialData();
+    render();
+    showToast("Data obnovena.");
+    return;
+  }
 
   if (action === "toggle-theme") {
     state.theme = state.theme === "dark" ? "light" : "dark";
@@ -535,6 +817,8 @@ function handleClick(event) {
     const shift = action === "prev-week" ? -7 : 7;
     state.weekStart = toDateInput(addDays(parseDate(state.weekStart), shift));
     ensureWeek();
+    await loadCloudWeek();
+    await loadSocialData();
     render();
     return;
   }
@@ -544,6 +828,8 @@ function handleClick(event) {
     state.weekStart = toDateInput(getWeekStart(today));
     state.selectedDay = getDayIndex(today);
     ensureWeek();
+    await loadCloudWeek();
+    await loadSocialData();
     render();
     return;
   }
@@ -675,6 +961,36 @@ function handleClick(event) {
   }
 }
 
+async function handleSubmit(event) {
+  const authMode = event.target.dataset.authForm;
+  if (!authMode) return;
+  event.preventDefault();
+
+  if (!cloud.client) {
+    showToast("Supabase neni nakonfigurovany.");
+    return;
+  }
+
+  const form = new FormData(event.target);
+  const email = String(form.get("email") || "").trim();
+  const password = String(form.get("password") || "");
+
+  if (authMode === "sign-in") {
+    const { error } = await cloud.client.auth.signInWithPassword({ email, password });
+    if (error) showToast(error.message);
+    return;
+  }
+
+  if (authMode === "sign-up") {
+    const { error } = await cloud.client.auth.signUp({ email, password });
+    if (error) {
+      showToast(error.message);
+      return;
+    }
+    showToast("Registrace hotova. Kdyz Supabase vyzaduje potvrzeni, mrkni do emailu.");
+  }
+}
+
 function handleInput(event) {
   const field = event.target.dataset.field;
   if (!field) return;
@@ -712,6 +1028,15 @@ function handleInput(event) {
 function handleChange(event) {
   const field = event.target.dataset.field;
   if (!field) return;
+
+  const week = ensureWeek();
+  const day = week[state.selectedDay];
+
+  if (field === "day-visibility") {
+    day.visibility = event.target.value;
+    render();
+    return;
+  }
 
   const exercise = findExercise(event.target.dataset.exerciseId);
   const set = exercise?.sets.find((item) => item.id === event.target.dataset.setId);
@@ -751,6 +1076,186 @@ function handleImport(event) {
     }
   };
   reader.readAsText(file);
+}
+
+async function ensureProfile() {
+  if (!cloud.client || !cloud.session) return;
+  const user = cloud.session.user;
+  const fallbackName = user.email ? user.email.split("@")[0] : "sportovec";
+  const { data, error } = await cloud.client
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (data && !error) {
+    cloud.profile = data;
+    return;
+  }
+
+  const profile = {
+    id: user.id,
+    username: `${fallbackName}-${user.id.slice(0, 4)}`.toLowerCase(),
+    display_name: fallbackName
+  };
+  const { data: inserted } = await cloud.client
+    .from("profiles")
+    .insert(profile)
+    .select("*")
+    .single();
+  cloud.profile = inserted || profile;
+}
+
+async function loadCloudData() {
+  await loadCloudWeek();
+  await loadSocialData();
+}
+
+async function loadCloudWeek() {
+  if (!cloud.client || !cloud.session) return;
+  cloud.loading = true;
+  const { data, error } = await cloud.client
+    .from("workout_days")
+    .select("*")
+    .eq("user_id", cloud.session.user.id)
+    .eq("week_start", state.weekStart)
+    .order("day_index", { ascending: true });
+
+  cloud.loading = false;
+  if (error) {
+    cloud.message = error.message;
+    showToast("Cloud tyden se nepodarilo nacist.");
+    return;
+  }
+
+  if (!data?.length) return;
+  const week = createBlankWeek();
+  data.forEach((row) => {
+    week[row.day_index] = rowToDay(row);
+  });
+  state.weeks[state.weekStart] = week;
+}
+
+async function loadSocialData() {
+  if (!cloud.client || !cloud.session) return;
+  await Promise.all([loadFeed(), loadLeaderboard()]);
+}
+
+async function loadFeed() {
+  const { data, error } = await cloud.client
+    .from("workout_days")
+    .select("id,user_id,week_start,day_index,title,focus,payload,volume,completed_sets,total_sets,updated_at")
+    .eq("visibility", "public")
+    .order("updated_at", { ascending: false })
+    .limit(20);
+
+  if (error) {
+    cloud.feed = [];
+    return;
+  }
+  cloud.feed = await attachProfiles(data || []);
+}
+
+async function loadLeaderboard() {
+  const { data, error } = await cloud.client
+    .from("workout_days")
+    .select("user_id,week_start,volume,completed_sets,total_sets")
+    .eq("visibility", "public")
+    .eq("week_start", state.weekStart)
+    .limit(200);
+
+  if (error) {
+    cloud.leaderboard = [];
+    return;
+  }
+
+  const rows = await attachProfiles(data || []);
+  const grouped = new Map();
+  rows.forEach((row) => {
+    const current = grouped.get(row.user_id) || {
+      userId: row.user_id,
+      name: row.profile?.display_name || row.profile?.username || "Sportovec",
+      volume: 0,
+      completedSets: 0,
+      totalSets: 0,
+      trainingDays: 0
+    };
+    current.volume += toNumber(row.volume, 0);
+    current.completedSets += toNumber(row.completed_sets, 0);
+    current.totalSets += toNumber(row.total_sets, 0);
+    current.trainingDays += 1;
+    grouped.set(row.user_id, current);
+  });
+
+  cloud.leaderboard = [...grouped.values()]
+    .sort((a, b) => b.volume - a.volume)
+    .slice(0, 20);
+}
+
+async function attachProfiles(rows) {
+  const ids = [...new Set(rows.map((row) => row.user_id).filter(Boolean))];
+  if (!ids.length) return rows;
+  const { data } = await cloud.client
+    .from("profiles")
+    .select("id,username,display_name,avatar_url")
+    .in("id", ids);
+  const profiles = new Map((data || []).map((profile) => [profile.id, profile]));
+  return rows.map((row) => ({
+    ...row,
+    profile: profiles.get(row.user_id) || null
+  }));
+}
+
+function scheduleCloudSync() {
+  if (!cloud.client || !cloud.session) return;
+  clearTimeout(cloudSyncTimer);
+  cloudSyncTimer = setTimeout(() => {
+    saveSelectedDayToCloud().catch((error) => {
+      console.warn(error);
+      showToast("Cloud ulozeni se nepovedlo.");
+    });
+  }, 650);
+}
+
+async function saveSelectedDayToCloud() {
+  if (!cloud.client || !cloud.session) return;
+  const day = ensureWeek()[state.selectedDay];
+  const summary = summarizeDay(day);
+  const payload = {
+    exercises: day.exercises
+  };
+
+  const { error } = await cloud.client
+    .from("workout_days")
+    .upsert({
+      user_id: cloud.session.user.id,
+      week_start: state.weekStart,
+      day_index: state.selectedDay,
+      title: day.title || "",
+      focus: day.focus || "",
+      notes: day.notes || "",
+      visibility: day.visibility || "friends",
+      payload,
+      volume: summary.volume,
+      completed_sets: summary.completed,
+      total_sets: summary.totalSets,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "user_id,week_start,day_index" });
+
+  if (error) throw error;
+  if (state.activeView !== "plan") await loadSocialData();
+}
+
+function rowToDay(row) {
+  return normalizeWeek({
+    0: {
+      title: row.title,
+      focus: row.focus,
+      notes: row.notes,
+      visibility: row.visibility,
+      exercises: row.payload?.exercises || []
+    }
+  })[0];
 }
 
 function addLibraryExercise(id) {
@@ -866,6 +1371,25 @@ function showToast(message) {
 function applyTheme() {
   document.documentElement.dataset.theme = state.theme;
   document.documentElement.style.colorScheme = state.theme;
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.register("./sw.js").catch(() => {});
+}
+
+function profileName() {
+  return cloud.profile?.display_name || cloud.profile?.username || cloud.session?.user?.email || "Online";
+}
+
+function formatCloudDate(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("cs-CZ", {
+    day: "numeric",
+    month: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
 }
 
 function getWeekStart(date) {

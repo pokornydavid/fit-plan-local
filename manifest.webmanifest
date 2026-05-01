@@ -1,0 +1,17 @@
+{
+  "name": "Fit Plan",
+  "short_name": "FitPlan",
+  "description": "Training planner, workout feed and leaderboard.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#080b0f",
+  "theme_color": "#2dd4bf",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
