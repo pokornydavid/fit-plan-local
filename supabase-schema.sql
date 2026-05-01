@@ -21,7 +21,7 @@ create table if not exists public.workout_days (
   title text not null default '',
   focus text not null default '',
   notes text not null default '',
-  visibility text not null default 'friends' check (visibility in ('private', 'friends', 'public')),
+  visibility text not null default 'public' check (visibility in ('private', 'public')),
   payload jsonb not null default '{}'::jsonb,
   volume numeric not null default 0,
   completed_sets int not null default 0,

@@ -203,7 +203,7 @@ function normalizeWeek(week) {
       title: String(source.title || ""),
       focus: String(source.focus || ""),
       notes: String(source.notes || ""),
-      visibility: ["private", "friends", "public"].includes(source.visibility) ? source.visibility : "friends",
+      visibility: normalizeVisibility(source.visibility),
       exercises: Array.isArray(source.exercises)
         ? source.exercises.map(normalizeExercise)
         : []
@@ -375,7 +375,7 @@ function createBlankWeek() {
         title: "",
         focus: "",
         notes: "",
-        visibility: "friends",
+        visibility: "public",
         exercises: []
       }
     ])
@@ -447,6 +447,10 @@ function normalizeNutritionWeek(nutrition) {
       };
     })
   };
+}
+
+function normalizeVisibility(value) {
+  return value === "private" ? "private" : "public";
 }
 
 function findStoredNutritionPhase(nutrition) {
@@ -655,7 +659,7 @@ function renderAuthShell() {
         <div>
           <p class="eyebrow">Fit Plan Cloud</p>
           <h2>Train, eat and track progress in one place</h2>
-          <p class="auth-copy">Sync workouts, calories, macros and bodyweight across devices. Share selected sessions with friends and build a weekly leaderboard around consistency.</p>
+          <p class="auth-copy">Sync workouts, calories, macros and bodyweight across devices. Share public sessions and build a weekly leaderboard around consistency.</p>
         </div>
         <div class="auth-grid">
           <form class="auth-card" data-auth-form="sign-in">
@@ -1126,7 +1130,7 @@ function renderDayWorkspace(day, summary) {
           <label class="field">
             <span>Viditelnost</span>
             <select class="select" data-field="day-visibility">
-              ${renderVisibilityOptions(day.visibility || "friends")}
+              ${renderVisibilityOptions(day.visibility || "public")}
             </select>
           </label>
           <button class="btn danger" data-action="clear-day">Vycistit den</button>
@@ -1347,13 +1351,13 @@ function renderMuscleOptions(selected) {
 }
 
 function renderVisibilityOptions(selected) {
+  const normalized = normalizeVisibility(selected);
   const items = [
+    ["public", "Public"],
     ["private", "Private"],
-    ["friends", "Friends"],
-    ["public", "Public"]
   ];
   return items.map(([value, label]) => (
-    `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`
+    `<option value="${value}" ${value === normalized ? "selected" : ""}>${label}</option>`
   )).join("");
 }
 
@@ -2037,6 +2041,10 @@ async function loadCloudWeek() {
     week[row.day_index] = rowToDay(row);
   });
   state.weeks[state.weekStart] = week;
+  data
+    .filter((row) => row.visibility === "friends")
+    .forEach((row) => markPendingWorkoutSync(row.week_start, row.day_index));
+  await flushPendingSync();
 }
 
 async function loadCloudNutritionWeek() {
@@ -2210,7 +2218,7 @@ async function saveDayToCloud(weekStart, dayIndex) {
       title: day.title || "",
       focus: day.focus || "",
       notes: day.notes || "",
-      visibility: day.visibility || "friends",
+      visibility: normalizeVisibility(day.visibility),
       payload,
       volume: summary.volume,
       completed_sets: summary.completed,
@@ -2228,7 +2236,7 @@ function rowToDay(row) {
       title: row.title,
       focus: row.focus,
       notes: row.notes,
-      visibility: row.visibility,
+      visibility: normalizeVisibility(row.visibility),
       exercises: row.payload?.exercises || []
     }
   })[0];
