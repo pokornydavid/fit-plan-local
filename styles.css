@@ -778,6 +778,21 @@ button.cloud-badge:hover {
   align-items: center;
 }
 
+.phase-row-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.phase-row-field span {
+  display: none;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .phase-row-head {
   color: var(--muted);
   font-size: 0.72rem;
@@ -1446,6 +1461,10 @@ button.cloud-badge:hover {
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--field-bg);
+  }
+
+  .phase-row-field span {
+    display: block;
   }
 
   .phase-row-head {

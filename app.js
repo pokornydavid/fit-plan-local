@@ -1,6 +1,7 @@
 const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
+const DEFAULT_PHASE_WEEKS = 16;
 const DAY_LABELS = [
   ["Po", "Pondeli"],
   ["Ut", "Utery"],
@@ -150,6 +151,7 @@ function createDefaultState() {
     nutrition: {
       [weekStart]: createNutritionWeek()
     },
+    nutritionPhase: createNutritionPhase(),
     library: createDefaultLibrary()
   };
 }
@@ -162,6 +164,7 @@ function normalizeState(value, fallback = createDefaultState()) {
     weekStart: value?.weekStart || fallback.weekStart,
     weeks: value?.weeks && typeof value.weeks === "object" ? value.weeks : fallback.weeks,
     nutrition: value?.nutrition && typeof value.nutrition === "object" ? value.nutrition : fallback.nutrition,
+    nutritionPhase: normalizeNutritionPhase(value?.nutritionPhase || findStoredNutritionPhase(value?.nutrition) || fallback.nutritionPhase),
     library: Array.isArray(value?.library) ? value.library : fallback.library
   };
 
@@ -396,8 +399,7 @@ function createNutritionWeek() {
       fat: "",
       weight: "",
       notes: ""
-    })),
-    phase: createNutritionPhase()
+    }))
   };
 }
 
@@ -406,7 +408,7 @@ function createNutritionPhase() {
     title: "",
     mode: "diet",
     goalWeight: "",
-    rows: [createNutritionPhaseRow(1)]
+    rows: Array.from({ length: DEFAULT_PHASE_WEEKS }, (_, index) => createNutritionPhaseRow(index + 1))
   };
 }
 
@@ -443,25 +445,34 @@ function normalizeNutritionWeek(nutrition) {
         weight: normalizeOptionalNumber(day.weight),
         notes: String(day.notes || "")
       };
-    }),
-    phase: normalizeNutritionPhase(nutrition?.phase)
+    })
   };
+}
+
+function findStoredNutritionPhase(nutrition) {
+  if (!nutrition || typeof nutrition !== "object") return null;
+  return Object.values(nutrition).find((week) => week?.phase)?.phase || null;
 }
 
 function normalizeNutritionPhase(phase) {
   const fallback = createNutritionPhase();
   const rows = Array.isArray(phase?.rows) && phase.rows.length ? phase.rows : fallback.rows;
+  const normalizedRows = rows.map((row, index) => ({
+    id: row.id || uid(),
+    weekLabel: String(row.weekLabel || `Tyden ${index + 1}`),
+    calories: normalizeOptionalNumber(row.calories),
+    weight: normalizeOptionalNumber(row.weight),
+    note: String(row.note || "")
+  }));
+  while (normalizedRows.length < DEFAULT_PHASE_WEEKS) {
+    normalizedRows.push(createNutritionPhaseRow(normalizedRows.length + 1));
+  }
+
   return {
     title: String(phase?.title || ""),
     mode: ["diet", "bulk", "maintain"].includes(phase?.mode) ? phase.mode : "diet",
     goalWeight: normalizeOptionalNumber(phase?.goalWeight),
-    rows: rows.map((row, index) => ({
-      id: row.id || uid(),
-      weekLabel: String(row.weekLabel || `Tyden ${index + 1}`),
-      calories: normalizeOptionalNumber(row.calories),
-      weight: normalizeOptionalNumber(row.weight),
-      note: String(row.note || "")
-    }))
+    rows: normalizedRows
   };
 }
 
@@ -812,7 +823,7 @@ function renderNutritionShell(nutrition, summary) {
             </div>
             <button class="btn primary" data-action="add-phase-row">+ Week</button>
           </div>
-          ${renderNutritionPhase(nutrition.phase)}
+          ${renderNutritionPhase(state.nutritionPhase)}
         </section>
       </section>
     </main>
@@ -870,10 +881,22 @@ function renderPhaseModeOptions(selected) {
 function renderNutritionPhaseRow(row) {
   return `
     <div class="phase-row">
-      <input class="input" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="weekLabel" value="${escapeAttr(row.weekLabel)}" placeholder="Tyden">
-      <input class="input" type="number" min="0" step="50" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="calories" value="${escapeAttr(row.calories)}" placeholder="2300">
-      <input class="input" type="number" min="0" step="0.1" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="weight" value="${escapeAttr(row.weight)}" placeholder="85.5">
-      <input class="input" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="note" value="${escapeAttr(row.note)}" placeholder="Poznamka">
+      <label class="phase-row-field">
+        <span>Tyden</span>
+        <input class="input" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="weekLabel" value="${escapeAttr(row.weekLabel)}" placeholder="Tyden">
+      </label>
+      <label class="phase-row-field">
+        <span>Kcal</span>
+        <input class="input" type="number" min="0" step="50" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="calories" value="${escapeAttr(row.calories)}" placeholder="2300">
+      </label>
+      <label class="phase-row-field">
+        <span>Vaha</span>
+        <input class="input" type="number" min="0" step="0.1" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="weight" value="${escapeAttr(row.weight)}" placeholder="85.5">
+      </label>
+      <label class="phase-row-field">
+        <span>Poznamka</span>
+        <input class="input" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="note" value="${escapeAttr(row.note)}" placeholder="Poznamka">
+      </label>
       <button class="icon-btn danger" data-action="remove-phase-row" data-row-id="${row.id}" title="Smazat tyden" aria-label="Smazat tyden">x</button>
     </div>
   `;
@@ -1404,7 +1427,7 @@ async function handleClick(event) {
   }
 
   if (action === "add-phase-row") {
-    const phase = ensureNutritionWeek().phase;
+    const phase = state.nutritionPhase;
     phase.rows.push(createNutritionPhaseRow(phase.rows.length + 1));
     save();
     render();
@@ -1412,7 +1435,7 @@ async function handleClick(event) {
   }
 
   if (action === "remove-phase-row") {
-    const phase = ensureNutritionWeek().phase;
+    const phase = state.nutritionPhase;
     if (phase.rows.length <= 1) {
       phase.rows = [createNutritionPhaseRow(1)];
     } else {
@@ -1729,12 +1752,14 @@ function handleChange(event) {
   if (field === "nutrition-phase") {
     updateNutritionPhase(event.target);
     save();
+    render();
     return;
   }
 
   if (field === "nutrition-phase-row") {
     updateNutritionPhaseRow(event.target);
     save();
+    render();
     return;
   }
 
@@ -1996,6 +2021,9 @@ async function loadCloudNutritionWeek() {
     if (hasNutritionData(localNutrition)) await saveNutritionToCloud();
     return;
   }
+  if (data.payload?.phase && !hasNutritionPhaseData(state.nutritionPhase)) {
+    state.nutritionPhase = normalizeNutritionPhase(data.payload.phase);
+  }
   state.nutrition[state.weekStart] = normalizeNutritionWeek(data.payload);
 }
 
@@ -2182,7 +2210,10 @@ async function saveNutritionWeekToCloud(weekStart) {
     .upsert({
       user_id: cloud.session.user.id,
       week_start: weekStart,
-      payload: nutrition,
+      payload: {
+        ...nutrition,
+        phase: normalizeNutritionPhase(state.nutritionPhase)
+      },
       calories: summary.totalCalories,
       protein: summary.totalProtein,
       carbs: summary.totalCarbs,
@@ -2213,7 +2244,7 @@ function updateNutritionGoal(input) {
 }
 
 function updateNutritionPhase(input) {
-  const phase = ensureNutritionWeek().phase;
+  const phase = state.nutritionPhase;
   const field = input.dataset.phase;
   if (!field) return;
   if (field === "goalWeight") {
@@ -2228,7 +2259,7 @@ function updateNutritionPhase(input) {
 }
 
 function updateNutritionPhaseRow(input) {
-  const phase = ensureNutritionWeek().phase;
+  const phase = state.nutritionPhase;
   const row = phase.rows.find((item) => item.id === input.dataset.rowId);
   const field = input.dataset.phaseRow;
   if (!row || !field) return;
@@ -2286,11 +2317,7 @@ function cloneNutritionWeek(nutrition, resetDays = false) {
     lastCheatMeal: resetDays ? "" : normalized.lastCheatMeal,
     days: resetDays
       ? createNutritionWeek().days
-      : normalized.days.map((day) => ({ ...day })),
-    phase: {
-      ...normalized.phase,
-      rows: normalized.phase.rows.map((row) => ({ ...row, id: uid() }))
-    }
+      : normalized.days.map((day) => ({ ...day }))
   };
 }
 
@@ -2428,15 +2455,19 @@ function hasNutritionData(nutrition) {
       return value !== "" && value !== null && value !== undefined;
     }) || String(day.notes || "").trim()
   ));
-  const phase = normalizeNutritionPhase(nutrition.phase);
-  const hasPhaseData = Boolean(phase.title || phase.goalWeight) || phase.mode !== "diet" || phase.rows.some((row, index) => (
+  const hasPhaseData = hasNutritionPhaseData(state.nutritionPhase);
+
+  return goalsChanged || hasDayData || hasPhaseData || Boolean(nutrition.lastCheatMeal);
+}
+
+function hasNutritionPhaseData(phaseValue) {
+  const phase = normalizeNutritionPhase(phaseValue);
+  return Boolean(phase.title || phase.goalWeight) || phase.mode !== "diet" || phase.rows.some((row, index) => (
     row.weekLabel !== `Tyden ${index + 1}` ||
     row.calories !== "" ||
     row.weight !== "" ||
     row.note.trim()
   ));
-
-  return goalsChanged || hasDayData || hasPhaseData || Boolean(nutrition.lastCheatMeal);
 }
 
 function exportData() {
