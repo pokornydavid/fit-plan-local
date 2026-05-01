@@ -64,9 +64,16 @@
   box-sizing: border-box;
 }
 
+html {
+  min-width: 320px;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   min-width: 320px;
+  max-width: 100%;
   overflow-x: hidden;
   background: var(--bg);
   color: var(--ink);
@@ -94,6 +101,8 @@ button:disabled {
   min-height: 100vh;
   display: grid;
   grid-template-rows: auto 1fr;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 .topbar {
@@ -111,6 +120,12 @@ button:disabled {
   top: 0;
   z-index: 10;
   backdrop-filter: blur(14px);
+}
+
+.topbar > *,
+.shell > *,
+.panel {
+  min-width: 0;
 }
 
 .center-stack {
@@ -292,8 +307,6 @@ button:disabled {
 }
 
 .day-item {
-  position: relative;
-  z-index: 1;
   width: 100%;
   display: grid;
   gap: 8px;
@@ -990,7 +1003,7 @@ button:disabled {
   transform: translateX(-50%) translateY(0);
 }
 
-@media (max-width: 1800px) {
+@media (max-width: 1920px) {
   .topbar {
     grid-template-columns: 1fr;
     align-items: start;

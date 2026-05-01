@@ -974,9 +974,13 @@ async function handleClick(event) {
   const day = week[state.selectedDay];
 
   if (action === "set-view") {
-    state.activeView = target.dataset.view;
-    if (state.activeView === "nutrition") await loadCloudNutritionWeek();
-    if (state.activeView === "feed" || state.activeView === "leaderboard") await loadSocialData();
+    const nextView = target.dataset.view;
+    if (!["plan", "nutrition", "feed", "leaderboard"].includes(nextView)) return;
+    state.activeView = nextView;
+    saveLocal();
+    render();
+    if (nextView === "nutrition") await loadCloudNutritionWeek();
+    if (nextView === "feed" || nextView === "leaderboard") await loadSocialData();
     render();
     return;
   }
@@ -1002,6 +1006,7 @@ async function handleClick(event) {
 
   if (action === "select-day") {
     state.selectedDay = Number(target.dataset.day);
+    saveLocal();
     render();
     return;
   }
@@ -1249,6 +1254,12 @@ function handleInput(event) {
   if (field === "exercise-notes") {
     exercise.notes = event.target.value;
     save();
+    return;
+  }
+
+  const set = exercise.sets.find((item) => item.id === event.target.dataset.setId);
+  if (set && updateSetField(field, set, event.target)) {
+    save();
   }
 }
 
@@ -1261,24 +1272,25 @@ function handleChange(event) {
 
   if (field === "nutrition-day") {
     updateNutritionDay(event.target);
-    render();
+    save();
     return;
   }
 
   if (field === "nutrition-goal") {
     updateNutritionGoal(event.target);
-    render();
+    save();
     return;
   }
 
   if (field === "nutrition-cheat") {
     ensureNutritionWeek().lastCheatMeal = event.target.value;
-    render();
+    save();
     return;
   }
 
   if (field === "day-visibility") {
     day.visibility = event.target.value;
+    save();
     render();
     return;
   }
@@ -1288,18 +1300,38 @@ function handleChange(event) {
 
   if (field === "exercise-muscle" && exercise) {
     exercise.muscle = event.target.value;
+    save();
     render();
     return;
   }
 
   if (!set) return;
 
-  if (field === "set-done") set.done = event.target.checked;
-  if (field === "set-reps") set.reps = toNumber(event.target.value, 0);
-  if (field === "set-weight") set.weight = toNumber(event.target.value, 0);
-  if (field === "set-rpe") set.rpe = toNumber(event.target.value, 0);
+  const shouldRender = field === "set-done";
+  if (!updateSetField(field, set, event.target)) return;
 
-  render();
+  save();
+  if (shouldRender) render();
+}
+
+function updateSetField(field, set, target) {
+  if (field === "set-done") {
+    set.done = target.checked;
+    return true;
+  }
+  if (field === "set-reps") {
+    set.reps = toNumber(target.value, 0);
+    return true;
+  }
+  if (field === "set-weight") {
+    set.weight = toNumber(target.value, 0);
+    return true;
+  }
+  if (field === "set-rpe") {
+    set.rpe = toNumber(target.value, 0);
+    return true;
+  }
+  return false;
 }
 
 function handleImport(event) {
