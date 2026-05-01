@@ -691,6 +691,61 @@ button.cloud-badge:hover {
   display: none;
 }
 
+.nutrition-day-pager {
+  display: grid;
+  gap: 10px;
+}
+
+.nutrition-day-switcher {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.nutrition-day-current {
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field-bg);
+  text-align: center;
+}
+
+.nutrition-day-current strong,
+.nutrition-day-current span {
+  display: block;
+}
+
+.nutrition-day-current span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.nutrition-day-tabs {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.nutrition-day-tab {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: var(--field-bg);
+  font-weight: 850;
+}
+
+.nutrition-day-tab.active {
+  color: var(--teal-ink);
+  border-color: var(--teal);
+  background: var(--teal);
+}
+
 .nutrition-day-card {
   display: grid;
   gap: 12px;

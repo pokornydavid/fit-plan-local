@@ -794,7 +794,7 @@ function renderNutritionShell(nutrition, summary) {
             <span class="microcopy">Calories, macros, bodyweight and quick notes</span>
           </div>
           <div class="nutrition-day-cards">
-            ${nutrition.days.map((day, index) => renderNutritionDayCard(day, index)).join("")}
+            ${renderNutritionDayPager(nutrition)}
           </div>
           <div class="nutrition-table-wrap">
             <table class="nutrition-table">
@@ -827,6 +827,32 @@ function renderNutritionShell(nutrition, summary) {
         </section>
       </section>
     </main>
+  `;
+}
+
+function renderNutritionDayPager(nutrition) {
+  const dayIndex = Math.max(0, Math.min(6, state.selectedDay));
+  const day = nutrition.days[dayIndex] || createNutritionWeek().days[dayIndex];
+  const date = addDays(parseDate(state.weekStart), dayIndex);
+  return `
+    <div class="nutrition-day-pager">
+      <div class="nutrition-day-switcher">
+        <button class="icon-btn" data-action="prev-nutrition-day" title="Predchozi den" aria-label="Predchozi den">&lt;</button>
+        <div class="nutrition-day-current">
+          <strong>${DAY_LABELS[dayIndex][1]}</strong>
+          <span>${formatShortDate(date)}</span>
+        </div>
+        <button class="icon-btn" data-action="next-nutrition-day" title="Dalsi den" aria-label="Dalsi den">&gt;</button>
+      </div>
+      <div class="nutrition-day-tabs" aria-label="Vyber dne">
+        ${DAY_LABELS.map((label, index) => `
+          <button class="nutrition-day-tab${index === dayIndex ? " active" : ""}" data-action="select-nutrition-day" data-day="${index}">
+            ${label[0]}
+          </button>
+        `).join("")}
+      </div>
+      ${renderNutritionDayCard(day, dayIndex)}
+    </div>
   `;
 }
 
@@ -1374,6 +1400,21 @@ async function handleClick(event) {
   }
 
   if (action === "select-day") {
+    state.selectedDay = Number(target.dataset.day);
+    saveLocal();
+    render();
+    return;
+  }
+
+  if (action === "prev-nutrition-day" || action === "next-nutrition-day") {
+    const shift = action === "prev-nutrition-day" ? -1 : 1;
+    state.selectedDay = (state.selectedDay + shift + 7) % 7;
+    saveLocal();
+    render();
+    return;
+  }
+
+  if (action === "select-nutrition-day") {
     state.selectedDay = Number(target.dataset.day);
     saveLocal();
     render();
