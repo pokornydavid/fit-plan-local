@@ -28,6 +28,11 @@ Data se ukladaji do `localStorage` v prohlizeci. V appce je i export/import JSON
 `SUPABASE_ANON_KEY` je verejny browserovy klic. Bezpecnost drzi Row Level
 Security policy v `supabase-schema.sql`.
 
+## Online zdarma
+
+Nejlevnejsi deploy je GitHub Pages + Supabase Free. Presny postup je v
+`DEPLOY.md`.
+
 ## Mobil
 
 Appka ma zaklad PWA (`manifest.webmanifest` a `sw.js`). Na iPhonu/Androidu ji
