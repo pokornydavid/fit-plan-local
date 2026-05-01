@@ -1022,6 +1022,8 @@ async function handleClick(event) {
     state.weekStart = toDateInput(addDays(parseDate(state.weekStart), shift));
     ensureWeek();
     ensureNutritionWeek();
+    saveLocal();
+    render();
     await loadCloudWeek();
     await loadCloudNutritionWeek();
     await loadSocialData();
@@ -1035,6 +1037,8 @@ async function handleClick(event) {
     state.selectedDay = getDayIndex(today);
     ensureWeek();
     ensureNutritionWeek();
+    saveLocal();
+    render();
     await loadCloudWeek();
     await loadCloudNutritionWeek();
     await loadSocialData();
