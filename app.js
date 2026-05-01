@@ -13,9 +13,13 @@ const MUSCLES = [
   "Hrudnik",
   "Zada",
   "Nohy",
+  "Lytka",
   "Ramena",
+  "Trapezy",
   "Biceps",
   "Triceps",
+  "Predlokti",
+  "Bricho",
   "Core",
   "Kardio",
   "Mobilita",
@@ -160,6 +164,12 @@ function normalizeState(value, fallback = createDefaultState()) {
     name: String(item.name || "Cvik"),
     muscle: MUSCLES.includes(item.muscle) ? item.muscle : "Full body"
   }));
+  appendMissingLibraryItems(next.library, [
+    ["Standing calf raise", "Lytka"],
+    ["Dumbbell shrug", "Trapezy"],
+    ["Wrist curl", "Predlokti"],
+    ["Crunch", "Bricho"]
+  ]);
 
   Object.keys(next.weeks).forEach((key) => {
     next.weeks[key] = normalizeWeek(next.weeks[key]);
@@ -232,16 +242,30 @@ function createDefaultLibrary() {
     libraryItem("Barbell row", "Zada"),
     libraryItem("Squat", "Nohy"),
     libraryItem("Romanian deadlift", "Nohy"),
+    libraryItem("Standing calf raise", "Lytka"),
     libraryItem("Shoulder press", "Ramena"),
     libraryItem("Lateral raise", "Ramena"),
+    libraryItem("Dumbbell shrug", "Trapezy"),
     libraryItem("Cable curl", "Biceps"),
     libraryItem("Triceps pushdown", "Triceps"),
+    libraryItem("Wrist curl", "Predlokti"),
+    libraryItem("Crunch", "Bricho"),
     libraryItem("Plank", "Core")
   ];
 }
 
 function libraryItem(name, muscle) {
   return { id: uid(), name, muscle };
+}
+
+function appendMissingLibraryItems(library, items) {
+  const existing = new Set(library.map((item) => item.name.toLowerCase()));
+  items.forEach(([name, muscle]) => {
+    if (!existing.has(name.toLowerCase())) {
+      library.push(libraryItem(name, muscle));
+      existing.add(name.toLowerCase());
+    }
+  });
 }
 
 function createSet(overrides = {}) {
