@@ -917,7 +917,10 @@ function renderExercise(exercise, index) {
   return `
     <article class="exercise-card" data-exercise-id="${exercise.id}" data-exercise-index="${index}">
       <div class="exercise-head">
-        <button class="drag-handle" type="button" data-drag-exercise-id="${exercise.id}" title="Pretahnout cvik" aria-label="Pretahnout cvik">${index + 1}</button>
+        <button class="drag-handle" type="button" data-drag-exercise-id="${exercise.id}" title="Pretahnout cvik" aria-label="Pretahnout cvik">
+          <span>Cvik</span>
+          <strong>${index + 1}</strong>
+        </button>
         <label class="field">
           <span>Cvik</span>
           <input class="input" data-field="exercise-name" data-exercise-id="${exercise.id}" value="${escapeAttr(exercise.name)}">

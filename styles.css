@@ -5,6 +5,9 @@
   --surface-2: #17222c;
   --surface-3: #0d131a;
   --control: #0c1219;
+  --field-bg: #0e1821;
+  --field-bg-soft: #13202a;
+  --field-border: #314250;
   --topbar: rgba(12, 18, 25, 0.92);
   --ink: #eef5f4;
   --muted: #8fa0a8;
@@ -36,6 +39,9 @@
   --surface-2: #eef3f1;
   --surface-3: #fafbfb;
   --control: #ffffff;
+  --field-bg: #f8fbfb;
+  --field-bg-soft: #eef5f4;
+  --field-border: #c2ced0;
   --topbar: rgba(255, 255, 255, 0.92);
   --ink: #202124;
   --muted: #626a70;
@@ -720,12 +726,14 @@ button.cloud-badge:hover {
   min-width: 0;
 }
 
+.field > span,
 .field label,
 .inline-label {
   font-size: 0.72rem;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  font-weight: 850;
 }
 
 .input,
@@ -733,18 +741,28 @@ button.cloud-badge:hover {
 .textarea {
   width: 100%;
   min-height: 40px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--field-border);
   border-radius: 6px;
-  background: var(--control);
+  background: var(--field-bg);
   color: var(--ink);
   padding: 9px 10px;
   outline: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+
+.input:hover,
+.select:hover,
+.textarea:hover {
+  background: var(--field-bg-soft);
+  border-color: var(--line-strong);
 }
 
 .input:focus,
 .select:focus,
 .textarea:focus {
   border-color: var(--teal);
+  background: var(--field-bg-soft);
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
@@ -837,9 +855,9 @@ button.cloud-badge:hover {
 
 .exercise-card {
   position: relative;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
-  background: var(--surface);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-3) 100%);
   overflow: hidden;
   transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease, opacity 140ms ease;
 }
@@ -865,22 +883,39 @@ button.cloud-badge:hover {
   align-items: end;
   padding: 12px;
   border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
 }
 
 .drag-handle {
-  width: 40px;
-  min-height: 40px;
+  width: 52px;
+  min-height: 56px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-direction: column;
+  gap: 1px;
   align-self: end;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(45, 212, 191, 0.38);
   border-radius: 6px;
-  color: var(--muted);
-  background: var(--control);
-  font-weight: 850;
+  color: var(--teal);
+  background: linear-gradient(180deg, var(--field-bg-soft), var(--field-bg));
   cursor: grab;
   touch-action: none;
+}
+
+.drag-handle span {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 850;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.drag-handle strong {
+  color: var(--ink);
+  font-size: 1.15rem;
+  line-height: 1.05;
 }
 
 .drag-handle:active {
@@ -891,6 +926,7 @@ button.cloud-badge:hover {
 .exercise-card.dragging .drag-handle {
   color: var(--teal);
   border-color: var(--teal);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .set-table-wrap {
@@ -899,7 +935,8 @@ button.cloud-badge:hover {
 
 .set-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   min-width: 580px;
 }
 
@@ -916,6 +953,14 @@ button.cloud-badge:hover {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   background: var(--table-head);
+}
+
+.set-table tbody tr {
+  background: var(--field-bg);
+}
+
+.set-table tbody tr:nth-child(even) {
+  background: var(--surface-3);
 }
 
 .set-table tr.done td {
