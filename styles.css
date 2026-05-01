@@ -687,6 +687,47 @@ button.cloud-badge:hover {
   overflow-x: auto;
 }
 
+.nutrition-day-cards {
+  display: none;
+}
+
+.nutrition-day-card {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field-bg);
+}
+
+.nutrition-day-card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.8fr);
+  align-items: end;
+  gap: 10px;
+}
+
+.nutrition-day-title strong,
+.nutrition-day-title span {
+  display: block;
+}
+
+.nutrition-day-title strong {
+  font-size: 1rem;
+}
+
+.nutrition-day-title span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.nutrition-day-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .nutrition-table {
   width: 100%;
   min-width: 900px;
@@ -1308,6 +1349,31 @@ button.cloud-badge:hover {
 
   .nutrition-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .nutrition-shell {
+    padding: 12px;
+  }
+
+  .nutrition-main {
+    padding: 14px;
+  }
+
+  .nutrition-head h2 {
+    font-size: 1.3rem;
+  }
+
+  .nutrition-head .auth-copy {
+    display: none;
+  }
+
+  .nutrition-table-wrap {
+    display: none;
+  }
+
+  .nutrition-day-cards {
+    display: grid;
+    gap: 10px;
   }
 
   .exercise-head {

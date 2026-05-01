@@ -668,6 +668,9 @@ function renderNutritionShell(nutrition, summary) {
             <h3>Daily log</h3>
             <span class="microcopy">Calories, macros, bodyweight and quick notes</span>
           </div>
+          <div class="nutrition-day-cards">
+            ${nutrition.days.map((day, index) => renderNutritionDayCard(day, index)).join("")}
+          </div>
           <div class="nutrition-table-wrap">
             <table class="nutrition-table">
               <thead>
@@ -689,6 +692,40 @@ function renderNutritionShell(nutrition, summary) {
         </section>
       </section>
     </main>
+  `;
+}
+
+function renderNutritionDayCard(day, index) {
+  const date = addDays(parseDate(state.weekStart), index);
+  return `
+    <article class="nutrition-day-card">
+      <div class="nutrition-day-card-head">
+        <div class="nutrition-day-title">
+          <strong>${DAY_LABELS[index][1]}</strong>
+          <span>${formatShortDate(date)}</span>
+        </div>
+        ${renderNutritionCardInput(index, "calories", "Kcal", day.calories, 10)}
+      </div>
+      <div class="nutrition-day-grid">
+        ${renderNutritionCardInput(index, "protein", "Protein", day.protein, 1)}
+        ${renderNutritionCardInput(index, "carbs", "Carbs", day.carbs, 1)}
+        ${renderNutritionCardInput(index, "fat", "Fat", day.fat, 1)}
+        ${renderNutritionCardInput(index, "weight", "Vaha", day.weight, 0.1)}
+      </div>
+      <label class="field">
+        <span>Poznamka</span>
+        <input class="input" data-field="nutrition-day" data-day="${index}" data-nutrition="notes" value="${escapeAttr(day.notes)}" placeholder="Meal note">
+      </label>
+    </article>
+  `;
+}
+
+function renderNutritionCardInput(dayIndex, field, label, value, step) {
+  return `
+    <label class="field">
+      <span>${label}</span>
+      <input class="input" type="number" min="0" step="${step}" data-field="nutrition-day" data-day="${dayIndex}" data-nutrition="${field}" value="${escapeAttr(value)}">
+    </label>
   `;
 }
 
@@ -1702,10 +1739,15 @@ async function loadCloudNutritionWeek() {
 
   if (error) {
     console.warn(error);
+    showCloudError("Nutrition data se nepodarilo nacist.", error);
     return;
   }
 
-  if (!data) return;
+  if (!data) {
+    const localNutrition = ensureNutritionWeek();
+    if (hasNutritionData(localNutrition)) await saveNutritionToCloud();
+    return;
+  }
   state.nutrition[state.weekStart] = normalizeNutritionWeek(data.payload);
 }
 
@@ -2031,6 +2073,21 @@ function summarizeNutrition(nutrition) {
     remainingCalories: Math.max(0, weeklyGoal - totalCalories),
     progress
   };
+}
+
+function hasNutritionData(nutrition) {
+  const defaults = createNutritionWeek();
+  const goals = nutrition.goals || {};
+  const goalsChanged = Object.keys(defaults.goals)
+    .some((key) => toNumber(goals[key], 0) !== defaults.goals[key]);
+  const hasDayData = (nutrition.days || []).some((day) => (
+    ["calories", "protein", "carbs", "fat", "weight"].some((key) => {
+      const value = day[key];
+      return value !== "" && value !== null && value !== undefined;
+    }) || String(day.notes || "").trim()
+  ));
+
+  return goalsChanged || hasDayData || Boolean(nutrition.lastCheatMeal);
 }
 
 function exportData() {
