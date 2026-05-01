@@ -25,6 +25,7 @@ const MUSCLES = [
 let state = loadState();
 let toastTimer = 0;
 let cloudSyncTimer = 0;
+let nutritionSyncTimer = 0;
 let cloud = {
   ready: false,
   configured: false,
@@ -126,6 +127,9 @@ function createDefaultState() {
     weeks: {
       [weekStart]: createSampleWeek()
     },
+    nutrition: {
+      [weekStart]: createNutritionWeek()
+    },
     library: createDefaultLibrary()
   };
 }
@@ -133,10 +137,11 @@ function createDefaultState() {
 function normalizeState(value, fallback = createDefaultState()) {
   const next = {
     theme: value?.theme === "light" ? "light" : "dark",
-    activeView: ["plan", "feed", "leaderboard"].includes(value?.activeView) ? value.activeView : "plan",
+    activeView: ["plan", "nutrition", "feed", "leaderboard"].includes(value?.activeView) ? value.activeView : "plan",
     selectedDay: Number.isInteger(value?.selectedDay) ? value.selectedDay : fallback.selectedDay,
     weekStart: value?.weekStart || fallback.weekStart,
     weeks: value?.weeks && typeof value.weeks === "object" ? value.weeks : fallback.weeks,
+    nutrition: value?.nutrition && typeof value.nutrition === "object" ? value.nutrition : fallback.nutrition,
     library: Array.isArray(value?.library) ? value.library : fallback.library
   };
 
@@ -151,6 +156,11 @@ function normalizeState(value, fallback = createDefaultState()) {
     next.weeks[key] = normalizeWeek(next.weeks[key]);
   });
   if (!next.weeks[next.weekStart]) next.weeks[next.weekStart] = createBlankWeek();
+
+  Object.keys(next.nutrition).forEach((key) => {
+    next.nutrition[key] = normalizeNutritionWeek(next.nutrition[key]);
+  });
+  if (!next.nutrition[next.weekStart]) next.nutrition[next.weekStart] = createNutritionWeek();
 
   return next;
 }
@@ -198,6 +208,7 @@ function normalizeSet(set) {
 function save() {
   saveLocal();
   scheduleCloudSync();
+  scheduleNutritionSync();
 }
 
 function saveLocal() {
@@ -257,6 +268,54 @@ function createBlankWeek() {
       }
     ])
   );
+}
+
+function createNutritionWeek() {
+  return {
+    goals: {
+      dailyCalories: 2300,
+      weeklyCalories: 16000,
+      protein: 180,
+      carbs: 250,
+      fat: 55
+    },
+    lastCheatMeal: "",
+    days: DAY_LABELS.map(() => ({
+      calories: "",
+      protein: "",
+      carbs: "",
+      fat: "",
+      weight: "",
+      notes: ""
+    }))
+  };
+}
+
+function normalizeNutritionWeek(nutrition) {
+  const fallback = createNutritionWeek();
+  const sourceGoals = nutrition?.goals || {};
+  const days = Array.isArray(nutrition?.days) ? nutrition.days : [];
+  return {
+    goals: {
+      dailyCalories: toNumber(sourceGoals.dailyCalories, fallback.goals.dailyCalories),
+      weeklyCalories: toNumber(sourceGoals.weeklyCalories, fallback.goals.weeklyCalories),
+      protein: toNumber(sourceGoals.protein, fallback.goals.protein),
+      carbs: toNumber(sourceGoals.carbs, fallback.goals.carbs),
+      fat: toNumber(sourceGoals.fat, fallback.goals.fat)
+    },
+    lastCheatMeal: String(nutrition?.lastCheatMeal || ""),
+    days: DAY_LABELS.map((_, index) => {
+      const day = days[index] || {};
+      return {
+        calories: normalizeOptionalNumber(day.calories),
+        protein: normalizeOptionalNumber(day.protein),
+        carbs: normalizeOptionalNumber(day.carbs),
+        fat: normalizeOptionalNumber(day.fat),
+        weight: normalizeOptionalNumber(day.weight),
+        notes: String(day.notes || "")
+      };
+    })
+  };
 }
 
 function createSampleWeek() {
@@ -349,9 +408,11 @@ function createSampleWeek() {
 function render() {
   applyTheme();
   const week = ensureWeek();
+  const nutrition = ensureNutritionWeek();
   const selected = week[state.selectedDay];
   const summary = summarizeWeek(week);
   const daySummary = summarizeDay(selected);
+  const nutritionSummary = summarizeNutrition(nutrition);
   const lockedForAuth = cloud.configured && !cloud.session;
   const content = lockedForAuth
     ? renderAuthShell()
@@ -359,6 +420,8 @@ function render() {
       ? renderFeedShell()
       : state.activeView === "leaderboard"
         ? renderLeaderboardShell()
+        : state.activeView === "nutrition"
+          ? renderNutritionShell(nutrition, nutritionSummary)
         : `
           <div class="shell">
             ${renderWeekPanel(week)}
@@ -374,12 +437,13 @@ function render() {
           <div class="brand-mark" aria-hidden="true">FP</div>
           <div>
             <h1>Fit plan</h1>
-            <span>${cloud.configured ? "Cloud beta" : "Localhost"}</span>
+            <span>${cloud.configured ? "Training & nutrition cloud" : "Local training tracker"}</span>
           </div>
         </div>
         <div class="center-stack">
           <nav class="view-tabs" aria-label="Hlavni navigace">
             ${renderViewButton("plan", "Plan")}
+            ${renderViewButton("nutrition", "Nutrition")}
             ${renderViewButton("feed", "Feed")}
             ${renderViewButton("leaderboard", "Leaderboard")}
           </nav>
@@ -387,7 +451,7 @@ function render() {
             <button class="icon-btn" data-action="prev-week" title="Predchozi tyden" aria-label="Predchozi tyden">&lt;</button>
             <div class="week-label">
               <strong>${weekRangeLabel(state.weekStart)}</strong>
-              <span>${summary.completed}/${summary.totalSets} serii hotovo</span>
+              <span>${state.activeView === "nutrition" ? `${formatNumber(nutritionSummary.totalCalories)}/${formatNumber(nutrition.goals.weeklyCalories)} kcal` : `${summary.completed}/${summary.totalSets} serii hotovo`}</span>
             </div>
             <button class="icon-btn" data-action="next-week" title="Dalsi tyden" aria-label="Dalsi tyden">&gt;</button>
             <button class="btn" data-action="today">Dnes</button>
@@ -431,8 +495,8 @@ function renderAuthShell() {
       <section class="auth-panel">
         <div>
           <p class="eyebrow">Fit Plan Cloud</p>
-          <h2>Prihlaseni pro tebe a kamose</h2>
-          <p class="auth-copy">Po prihlaseni se treningy ukladaji do Supabase, daji se sdilet do feedu a pocitaji se do leaderboardu.</p>
+          <h2>Train, eat and track progress in one place</h2>
+          <p class="auth-copy">Sync workouts, calories, macros and bodyweight across devices. Share selected sessions with friends and build a weekly leaderboard around consistency.</p>
         </div>
         <div class="auth-grid">
           <form class="auth-card" data-auth-form="sign-in">
@@ -493,6 +557,134 @@ function renderLeaderboardShell() {
   `;
 }
 
+function renderNutritionShell(nutrition, summary) {
+  return `
+    <main class="nutrition-shell">
+      <section class="nutrition-main">
+        <div class="nutrition-head">
+          <div>
+            <p class="eyebrow">Nutrition control</p>
+            <h2>Weekly calorie system</h2>
+            <p class="auth-copy">Plan calories, macros and bodyweight in the same place as training. Built for cutting, bulking and clean weekly check-ins.</p>
+          </div>
+          <button class="btn" data-action="copy-nutrition-prev-week">Copy last week</button>
+        </div>
+        <div class="nutrition-metrics">
+          <div class="metric hero-metric"><strong>${formatNumber(summary.totalCalories)}</strong><span>Current kcal</span></div>
+          <div class="metric"><strong>${formatNumber(summary.remainingCalories)}</strong><span>Remaining weekly kcal</span></div>
+          <div class="metric"><strong>${formatNumber(summary.averageCalories)}</strong><span>Daily average</span></div>
+          <div class="metric"><strong>${summary.daysLogged}/7</strong><span>Days logged</span></div>
+        </div>
+        <div class="nutrition-progress">
+          <span style="--value:${summary.progress}%"></span>
+        </div>
+        <div class="nutrition-grid">
+          <section class="nutrition-card">
+            <div class="section-row">
+              <h3>Weekly targets</h3>
+              <span class="pill">${summary.progress}%</span>
+            </div>
+            <div class="goal-grid">
+              ${renderNutritionGoal("weeklyCalories", "Weekly kcal", nutrition.goals.weeklyCalories, 100)}
+              ${renderNutritionGoal("dailyCalories", "Daily kcal", nutrition.goals.dailyCalories, 50)}
+              ${renderNutritionGoal("protein", "Protein g", nutrition.goals.protein, 5)}
+              ${renderNutritionGoal("carbs", "Carbs g", nutrition.goals.carbs, 5)}
+              ${renderNutritionGoal("fat", "Fat g", nutrition.goals.fat, 5)}
+              <label class="field">
+                <span>Last cheat meal</span>
+                <input class="input" type="date" data-field="nutrition-cheat" value="${escapeAttr(nutrition.lastCheatMeal)}">
+              </label>
+            </div>
+          </section>
+          <section class="nutrition-card">
+            <div class="section-row">
+              <h3>Current macros</h3>
+              <span class="pill done">${formatNumber(summary.totalProtein)}P / ${formatNumber(summary.totalCarbs)}C / ${formatNumber(summary.totalFat)}F</span>
+            </div>
+            <div class="macro-bars">
+              ${renderMacroBar("Protein", summary.totalProtein, nutrition.goals.protein * 7)}
+              ${renderMacroBar("Carbs", summary.totalCarbs, nutrition.goals.carbs * 7)}
+              ${renderMacroBar("Fat", summary.totalFat, nutrition.goals.fat * 7)}
+            </div>
+          </section>
+        </div>
+        <section class="nutrition-card">
+          <div class="section-row">
+            <h3>Daily log</h3>
+            <span class="microcopy">Calories, macros, bodyweight and quick notes</span>
+          </div>
+          <div class="nutrition-table-wrap">
+            <table class="nutrition-table">
+              <thead>
+                <tr>
+                  <th>Day</th>
+                  <th>Kcal</th>
+                  <th>Protein</th>
+                  <th>Carbs</th>
+                  <th>Fat</th>
+                  <th>Weight</th>
+                  <th>Note</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${nutrition.days.map((day, index) => renderNutritionDayRow(day, index)).join("")}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+  `;
+}
+
+function renderNutritionGoal(field, label, value, step) {
+  return `
+    <label class="field">
+      <span>${label}</span>
+      <input class="input" type="number" min="0" step="${step}" data-field="nutrition-goal" data-goal="${field}" value="${escapeAttr(value)}">
+    </label>
+  `;
+}
+
+function renderMacroBar(label, value, goal) {
+  const percent = goal ? Math.min(100, Math.round((value / goal) * 100)) : 0;
+  return `
+    <div class="macro-row">
+      <div>
+        <strong>${label}</strong>
+        <span>${formatNumber(value)} / ${formatNumber(goal)} g</span>
+      </div>
+      <div class="progress"><span style="--value:${percent}%"></span></div>
+    </div>
+  `;
+}
+
+function renderNutritionDayRow(day, index) {
+  const date = addDays(parseDate(state.weekStart), index);
+  return `
+    <tr>
+      <th>
+        <strong>${DAY_LABELS[index][0]}</strong>
+        <span>${formatShortDate(date)}</span>
+      </th>
+      ${renderNutritionInput(index, "calories", day.calories, 10)}
+      ${renderNutritionInput(index, "protein", day.protein, 1)}
+      ${renderNutritionInput(index, "carbs", day.carbs, 1)}
+      ${renderNutritionInput(index, "fat", day.fat, 1)}
+      ${renderNutritionInput(index, "weight", day.weight, 0.1)}
+      <td><input class="input" data-field="nutrition-day" data-day="${index}" data-nutrition="notes" value="${escapeAttr(day.notes)}" placeholder="Meal note"></td>
+    </tr>
+  `;
+}
+
+function renderNutritionInput(dayIndex, field, value, step) {
+  return `
+    <td>
+      <input class="input" type="number" min="0" step="${step}" data-field="nutrition-day" data-day="${dayIndex}" data-nutrition="${field}" value="${escapeAttr(value)}">
+    </td>
+  `;
+}
+
 function renderCloudSetupNotice() {
   if (cloud.configured) return "";
   return `
@@ -544,7 +736,7 @@ function renderFeedExercises(exercises) {
   return `
     <div class="feed-exercises">
       ${exercises.slice(0, 4).map((exercise) => `
-        <span>${escapeHtml(exercise.name)} · ${exercise.sets?.length || 0}x</span>
+        <span>${escapeHtml(exercise.name)} - ${exercise.sets?.length || 0}x</span>
       `).join("")}
     </div>
   `;
@@ -556,7 +748,7 @@ function renderLeaderboardRow(row, index) {
       <span class="leader-rank">${index + 1}</span>
       <div>
         <strong>${escapeHtml(row.name)}</strong>
-        <span>${row.trainingDays} dny · ${row.completedSets}/${row.totalSets} serii</span>
+        <span>${row.trainingDays} dny - ${row.completedSets}/${row.totalSets} serii</span>
       </div>
       <strong>${formatNumber(row.volume)} kg</strong>
     </div>
@@ -783,7 +975,8 @@ async function handleClick(event) {
 
   if (action === "set-view") {
     state.activeView = target.dataset.view;
-    if (state.activeView !== "plan") await loadSocialData();
+    if (state.activeView === "nutrition") await loadCloudNutritionWeek();
+    if (state.activeView === "feed" || state.activeView === "leaderboard") await loadSocialData();
     render();
     return;
   }
@@ -817,7 +1010,9 @@ async function handleClick(event) {
     const shift = action === "prev-week" ? -7 : 7;
     state.weekStart = toDateInput(addDays(parseDate(state.weekStart), shift));
     ensureWeek();
+    ensureNutritionWeek();
     await loadCloudWeek();
+    await loadCloudNutritionWeek();
     await loadSocialData();
     render();
     return;
@@ -828,9 +1023,23 @@ async function handleClick(event) {
     state.weekStart = toDateInput(getWeekStart(today));
     state.selectedDay = getDayIndex(today);
     ensureWeek();
+    ensureNutritionWeek();
     await loadCloudWeek();
+    await loadCloudNutritionWeek();
     await loadSocialData();
     render();
+    return;
+  }
+
+  if (action === "copy-nutrition-prev-week") {
+    const previousStart = toDateInput(addDays(parseDate(state.weekStart), -7));
+    if (!state.nutrition[previousStart]) {
+      showToast("Minuly tyden zatim nema nutrition data.");
+      return;
+    }
+    state.nutrition[state.weekStart] = cloneNutritionWeek(state.nutrition[previousStart], true);
+    render();
+    showToast("Nutrition targets zkopirovany.");
     return;
   }
 
@@ -998,6 +1207,24 @@ function handleInput(event) {
   const week = ensureWeek();
   const day = week[state.selectedDay];
 
+  if (field === "nutrition-day") {
+    updateNutritionDay(event.target);
+    save();
+    return;
+  }
+
+  if (field === "nutrition-goal") {
+    updateNutritionGoal(event.target);
+    save();
+    return;
+  }
+
+  if (field === "nutrition-cheat") {
+    ensureNutritionWeek().lastCheatMeal = event.target.value;
+    save();
+    return;
+  }
+
   if (field === "day-title") {
     day.title = event.target.value;
     save();
@@ -1031,6 +1258,24 @@ function handleChange(event) {
 
   const week = ensureWeek();
   const day = week[state.selectedDay];
+
+  if (field === "nutrition-day") {
+    updateNutritionDay(event.target);
+    render();
+    return;
+  }
+
+  if (field === "nutrition-goal") {
+    updateNutritionGoal(event.target);
+    render();
+    return;
+  }
+
+  if (field === "nutrition-cheat") {
+    ensureNutritionWeek().lastCheatMeal = event.target.value;
+    render();
+    return;
+  }
 
   if (field === "day-visibility") {
     day.visibility = event.target.value;
@@ -1108,6 +1353,7 @@ async function ensureProfile() {
 
 async function loadCloudData() {
   await loadCloudWeek();
+  await loadCloudNutritionWeek();
   await loadSocialData();
 }
 
@@ -1134,6 +1380,24 @@ async function loadCloudWeek() {
     week[row.day_index] = rowToDay(row);
   });
   state.weeks[state.weekStart] = week;
+}
+
+async function loadCloudNutritionWeek() {
+  if (!cloud.client || !cloud.session) return;
+  const { data, error } = await cloud.client
+    .from("nutrition_weeks")
+    .select("*")
+    .eq("user_id", cloud.session.user.id)
+    .eq("week_start", state.weekStart)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(error);
+    return;
+  }
+
+  if (!data) return;
+  state.nutrition[state.weekStart] = normalizeNutritionWeek(data.payload);
 }
 
 async function loadSocialData() {
@@ -1217,6 +1481,17 @@ function scheduleCloudSync() {
   }, 650);
 }
 
+function scheduleNutritionSync() {
+  if (!cloud.client || !cloud.session || state.activeView !== "nutrition") return;
+  clearTimeout(nutritionSyncTimer);
+  nutritionSyncTimer = setTimeout(() => {
+    saveNutritionToCloud().catch((error) => {
+      console.warn(error);
+      showToast("Nutrition cloud ulozeni se nepovedlo.");
+    });
+  }, 650);
+}
+
 async function saveSelectedDayToCloud() {
   if (!cloud.client || !cloud.session) return;
   const day = ensureWeek()[state.selectedDay];
@@ -1258,6 +1533,44 @@ function rowToDay(row) {
   })[0];
 }
 
+async function saveNutritionToCloud() {
+  if (!cloud.client || !cloud.session) return;
+  const nutrition = ensureNutritionWeek();
+  const summary = summarizeNutrition(nutrition);
+  const { error } = await cloud.client
+    .from("nutrition_weeks")
+    .upsert({
+      user_id: cloud.session.user.id,
+      week_start: state.weekStart,
+      payload: nutrition,
+      calories: summary.totalCalories,
+      protein: summary.totalProtein,
+      carbs: summary.totalCarbs,
+      fat: summary.totalFat,
+      latest_weight: summary.latestWeight,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "user_id,week_start" });
+
+  if (error) throw error;
+}
+
+function updateNutritionDay(input) {
+  const nutrition = ensureNutritionWeek();
+  const dayIndex = Number(input.dataset.day);
+  const field = input.dataset.nutrition;
+  if (!nutrition.days[dayIndex] || !field) return;
+  nutrition.days[dayIndex][field] = field === "notes"
+    ? input.value
+    : normalizeOptionalNumber(input.value);
+}
+
+function updateNutritionGoal(input) {
+  const nutrition = ensureNutritionWeek();
+  const field = input.dataset.goal;
+  if (!field) return;
+  nutrition.goals[field] = toNumber(input.value, 0);
+}
+
 function addLibraryExercise(id) {
   const item = state.library.find((entry) => entry.id === id);
   if (!item) return;
@@ -1273,6 +1586,11 @@ function findExercise(id) {
 function ensureWeek() {
   if (!state.weeks[state.weekStart]) state.weeks[state.weekStart] = createBlankWeek();
   return state.weeks[state.weekStart];
+}
+
+function ensureNutritionWeek() {
+  if (!state.nutrition[state.weekStart]) state.nutrition[state.weekStart] = createNutritionWeek();
+  return state.nutrition[state.weekStart];
 }
 
 function cloneWeek(week, resetDone = false) {
@@ -1292,6 +1610,17 @@ function cloneWeek(week, resetDone = false) {
       }))
     }
   ]));
+}
+
+function cloneNutritionWeek(nutrition, resetDays = false) {
+  const normalized = normalizeNutritionWeek(nutrition);
+  return {
+    goals: { ...normalized.goals },
+    lastCheatMeal: resetDays ? "" : normalized.lastCheatMeal,
+    days: resetDays
+      ? createNutritionWeek().days
+      : normalized.days.map((day) => ({ ...day }))
+  };
 }
 
 function createFullBodyWeek() {
@@ -1345,6 +1674,34 @@ function summarizeDay(day) {
     completed,
     volume,
     progress: totalSets ? Math.round((completed / totalSets) * 100) : 0
+  };
+}
+
+function summarizeNutrition(nutrition) {
+  const days = nutrition.days || [];
+  const totalCalories = days.reduce((sum, day) => sum + toNumber(day.calories, 0), 0);
+  const totalProtein = days.reduce((sum, day) => sum + toNumber(day.protein, 0), 0);
+  const totalCarbs = days.reduce((sum, day) => sum + toNumber(day.carbs, 0), 0);
+  const totalFat = days.reduce((sum, day) => sum + toNumber(day.fat, 0), 0);
+  const daysLogged = days.filter((day) => toNumber(day.calories, 0) > 0).length;
+  const weights = days
+    .filter((day) => day.weight !== "" && day.weight !== null && day.weight !== undefined)
+    .map((day) => toNumber(day.weight, NaN))
+    .filter(Number.isFinite);
+  const latestWeight = weights.length ? weights.at(-1) : null;
+  const weeklyGoal = toNumber(nutrition.goals?.weeklyCalories, 0);
+  const progress = weeklyGoal ? Math.min(100, Math.round((totalCalories / weeklyGoal) * 100)) : 0;
+
+  return {
+    totalCalories,
+    totalProtein,
+    totalCarbs,
+    totalFat,
+    latestWeight,
+    daysLogged,
+    averageCalories: daysLogged ? Math.round(totalCalories / daysLogged) : 0,
+    remainingCalories: Math.max(0, weeklyGoal - totalCalories),
+    progress
   };
 }
 
@@ -1438,6 +1795,12 @@ function formatNumber(value) {
 function toNumber(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+function normalizeOptionalNumber(value) {
+  if (value === "" || value === null || value === undefined) return "";
+  const number = Number(value);
+  return Number.isFinite(number) ? number : "";
 }
 
 function escapeHtml(value) {

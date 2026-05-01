@@ -33,6 +33,10 @@ export const SUPABASE_ANON_KEY = "TVUJ_PUBLISHABLE_KEY";
 
 Nikdy nepouzivej `sb_secret` nebo `service_role` klic ve frontend aplikaci.
 
+Kdyz se schema v budoucnu zmeni, muzes `supabase-schema.sql` spustit znovu.
+Soubor je napsany tak, aby znovu vytvoril policies a pridal nove tabulky bez
+mazani tvych treningu nebo nutrition dat.
+
 ## 2. Supabase Auth URL
 
 V Supabase otevri Authentication > URL Configuration.
