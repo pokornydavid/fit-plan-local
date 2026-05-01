@@ -80,6 +80,11 @@ body {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+body.dragging-exercise {
+  cursor: grabbing;
+  user-select: none;
+}
+
 button,
 input,
 select,
@@ -819,19 +824,61 @@ button:disabled {
 }
 
 .exercise-card {
+  position: relative;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
   overflow: hidden;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease, opacity 140ms ease;
+}
+
+.exercise-card.dragging {
+  opacity: 0.76;
+  border-color: var(--teal);
+  transform: scale(0.998);
+}
+
+.exercise-card.drop-before {
+  box-shadow: inset 0 4px 0 var(--teal);
+}
+
+.exercise-card.drop-after {
+  box-shadow: inset 0 -4px 0 var(--teal);
 }
 
 .exercise-head {
   display: grid;
-  grid-template-columns: minmax(170px, 1fr) minmax(120px, 180px) auto;
+  grid-template-columns: auto minmax(170px, 1fr) minmax(120px, 180px) auto;
   gap: 10px;
   align-items: end;
   padding: 12px;
   border-bottom: 1px solid var(--line);
+}
+
+.drag-handle {
+  width: 40px;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: end;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  background: var(--control);
+  font-weight: 850;
+  cursor: grab;
+  touch-action: none;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.drag-handle:hover,
+.exercise-card.dragging .drag-handle {
+  color: var(--teal);
+  border-color: var(--teal);
 }
 
 .set-table-wrap {
@@ -1099,6 +1146,14 @@ button:disabled {
 
   .nutrition-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .exercise-head {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .exercise-head .field:nth-of-type(2) {
+    grid-column: 1 / -1;
   }
 }
 

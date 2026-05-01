@@ -26,6 +26,7 @@ let state = loadState();
 let toastTimer = 0;
 let cloudSyncTimer = 0;
 let nutritionSyncTimer = 0;
+let exerciseDrag = null;
 let cloud = {
   ready: false,
   configured: false,
@@ -47,6 +48,10 @@ app.addEventListener("click", handleClick);
 app.addEventListener("input", handleInput);
 app.addEventListener("change", handleChange);
 app.addEventListener("submit", handleSubmit);
+app.addEventListener("pointerdown", handlePointerDown);
+window.addEventListener("pointermove", handlePointerMove);
+window.addEventListener("pointerup", handlePointerUp);
+window.addEventListener("pointercancel", cancelExerciseDrag);
 importFile.addEventListener("change", handleImport);
 
 boot();
@@ -817,8 +822,8 @@ function renderDayWorkspace(day, summary) {
           </select>
           <button class="btn primary" data-action="add-custom-exercise">Pridat</button>
         </div>
-        <div class="exercise-list">
-          ${day.exercises.length ? day.exercises.map(renderExercise).join("") : renderEmptyDay(summary)}
+        <div class="exercise-list" data-exercise-list>
+          ${day.exercises.length ? day.exercises.map((exercise, index) => renderExercise(exercise, index)).join("") : renderEmptyDay(summary)}
         </div>
       </section>
     </main>
@@ -836,10 +841,11 @@ function renderEmptyDay() {
   `;
 }
 
-function renderExercise(exercise) {
+function renderExercise(exercise, index) {
   return `
-    <article class="exercise-card" data-exercise-id="${exercise.id}">
+    <article class="exercise-card" data-exercise-id="${exercise.id}" data-exercise-index="${index}">
       <div class="exercise-head">
+        <button class="drag-handle" type="button" data-drag-exercise-id="${exercise.id}" title="Pretahnout cvik" aria-label="Pretahnout cvik">${index + 1}</button>
         <label class="field">
           <span>Cvik</span>
           <input class="input" data-field="exercise-name" data-exercise-id="${exercise.id}" value="${escapeAttr(exercise.name)}">
@@ -1312,6 +1318,101 @@ function handleChange(event) {
 
   save();
   if (shouldRender) render();
+}
+
+function handlePointerDown(event) {
+  const handle = event.target.closest("[data-drag-exercise-id]");
+  if (!handle || event.button > 0) return;
+
+  const card = handle.closest(".exercise-card");
+  const list = handle.closest("[data-exercise-list]");
+  if (!card || !list) return;
+
+  const exercises = ensureWeek()[state.selectedDay].exercises;
+  const exerciseId = handle.dataset.dragExerciseId;
+  const fromIndex = exercises.findIndex((exercise) => exercise.id === exerciseId);
+  if (fromIndex < 0) return;
+
+  exerciseDrag = {
+    pointerId: event.pointerId,
+    exerciseId,
+    overId: exerciseId,
+    insertAfter: false,
+    moved: false
+  };
+
+  handle.setPointerCapture?.(event.pointerId);
+  card.classList.add("dragging");
+  document.body.classList.add("dragging-exercise");
+  event.preventDefault();
+}
+
+function handlePointerMove(event) {
+  if (!exerciseDrag || event.pointerId !== exerciseDrag.pointerId) return;
+
+  const element = document.elementFromPoint(event.clientX, event.clientY);
+  const card = element?.closest?.(".exercise-card");
+  if (!card || !card.closest("[data-exercise-list]")) {
+    event.preventDefault();
+    return;
+  }
+
+  exerciseDrag.moved = true;
+  const rect = card.getBoundingClientRect();
+  const insertAfter = event.clientY > rect.top + rect.height / 2;
+
+  document.querySelectorAll(".exercise-card.drop-before, .exercise-card.drop-after").forEach((item) => {
+    item.classList.remove("drop-before", "drop-after");
+  });
+
+  if (card.dataset.exerciseId !== exerciseDrag.exerciseId) {
+    card.classList.add(insertAfter ? "drop-after" : "drop-before");
+  }
+
+  exerciseDrag.overId = card.dataset.exerciseId;
+  exerciseDrag.insertAfter = insertAfter;
+  event.preventDefault();
+}
+
+function handlePointerUp(event) {
+  if (!exerciseDrag || event.pointerId !== exerciseDrag.pointerId) return;
+
+  const drag = exerciseDrag;
+  cancelExerciseDrag();
+
+  if (!drag.moved || !drag.overId || drag.overId === drag.exerciseId) return;
+  if (moveExerciseInSelectedDay(drag.exerciseId, drag.overId, drag.insertAfter)) {
+    save();
+    render();
+    showToast("Poradi cviku upraveno.");
+  }
+}
+
+function cancelExerciseDrag() {
+  if (!exerciseDrag) return;
+  exerciseDrag = null;
+  document.body.classList.remove("dragging-exercise");
+  document.querySelectorAll(".exercise-card.dragging, .exercise-card.drop-before, .exercise-card.drop-after").forEach((card) => {
+    card.classList.remove("dragging", "drop-before", "drop-after");
+  });
+}
+
+function moveExerciseInSelectedDay(exerciseId, targetId, insertAfter) {
+  const exercises = ensureWeek()[state.selectedDay].exercises;
+  const fromIndex = exercises.findIndex((exercise) => exercise.id === exerciseId);
+  const targetIndex = exercises.findIndex((exercise) => exercise.id === targetId);
+  if (fromIndex < 0 || targetIndex < 0 || fromIndex === targetIndex) return false;
+
+  const [moved] = exercises.splice(fromIndex, 1);
+  let insertIndex = exercises.findIndex((exercise) => exercise.id === targetId);
+  if (insertIndex < 0) {
+    exercises.splice(fromIndex, 0, moved);
+    return false;
+  }
+  if (insertAfter) insertIndex += 1;
+
+  exercises.splice(insertIndex, 0, moved);
+  return true;
 }
 
 function updateSetField(field, set, target) {
