@@ -461,7 +461,7 @@ function render() {
           <div class="shell">
             ${renderWeekPanel(week)}
             ${renderDayWorkspace(selected, daySummary)}
-            ${renderSidePanel(summary, daySummary)}
+            ${renderSidePanel(summary, daySummary, selected)}
           </div>
         `;
 
@@ -948,7 +948,7 @@ function renderSetRow(exerciseId, set, index) {
   `;
 }
 
-function renderSidePanel(summary, daySummary) {
+function renderSidePanel(summary, daySummary, day) {
   return `
     <aside class="panel side-panel">
       <div class="side-section">
@@ -959,6 +959,10 @@ function renderSidePanel(summary, daySummary) {
           <div class="metric"><strong>${summary.trainingDays}</strong><span>Treninkove dny</span></div>
           <div class="metric"><strong>${formatNumber(summary.volume)}</strong><span>Tydenni kg</span></div>
         </div>
+      </div>
+      <div class="side-section">
+        <h2 class="section-title">Partie dnes</h2>
+        ${renderMuscleBreakdown(summarizeDayMuscles(day))}
       </div>
       <div class="side-section">
         <h2 class="section-title">Sablony</h2>
@@ -988,6 +992,26 @@ function renderSidePanel(summary, daySummary) {
         </div>
       </div>
     </aside>
+  `;
+}
+
+function renderMuscleBreakdown(groups) {
+  if (!groups.length) {
+    return `<div class="muscle-empty microcopy">Pridej cviky a tady uvidis serie podle partie.</div>`;
+  }
+
+  return `
+    <div class="muscle-breakdown">
+      ${groups.map((group) => `
+        <div class="muscle-row">
+          <div>
+            <strong>${escapeHtml(group.muscle)}</strong>
+            <span>${group.exerciseCount} ${group.exerciseCount === 1 ? "cvik" : "cviky"}</span>
+          </div>
+          <span class="pill">${group.completed}/${group.totalSets} serii</span>
+        </div>
+      `).join("")}
+    </div>
   `;
 }
 
@@ -1919,6 +1943,24 @@ function summarizeDay(day) {
     volume,
     progress: totalSets ? Math.round((completed / totalSets) * 100) : 0
   };
+}
+
+function summarizeDayMuscles(day) {
+  const groups = new Map();
+  day.exercises.forEach((exercise) => {
+    const muscle = MUSCLES.includes(exercise.muscle) ? exercise.muscle : "Full body";
+    const current = groups.get(muscle) || {
+      muscle,
+      exerciseCount: 0,
+      completed: 0,
+      totalSets: 0
+    };
+    current.exerciseCount += 1;
+    current.completed += exercise.sets.filter((set) => set.done).length;
+    current.totalSets += exercise.sets.length;
+    groups.set(muscle, current);
+  });
+  return [...groups.values()].filter((group) => group.totalSets > 0);
 }
 
 function summarizeNutrition(nutrition) {
