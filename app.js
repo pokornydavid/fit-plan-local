@@ -861,6 +861,7 @@ function renderDayWorkspace(day, summary) {
           </label>
           <button class="btn danger" data-action="clear-day">Vycistit den</button>
         </div>
+        ${renderMobileDaySummary(day, summary)}
         <div class="add-strip">
           <select id="quickAdd" class="select" aria-label="Cvik z knihovny">
             ${state.library.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} / ${escapeHtml(item.muscle)}</option>`).join("")}
@@ -877,6 +878,27 @@ function renderDayWorkspace(day, summary) {
         </div>
       </section>
     </main>
+  `;
+}
+
+function renderMobileDaySummary(day, summary) {
+  const date = addDays(parseDate(state.weekStart), state.selectedDay);
+  const title = day.title || "Volno";
+  return `
+    <div class="mobile-day-summary">
+      <div class="mobile-summary-head">
+        <div>
+          <span>${DAY_LABELS[state.selectedDay][1]} ${formatShortDate(date)}</span>
+          <strong>${escapeHtml(title)}</strong>
+        </div>
+        <span class="pill${summary.totalSets > 0 && summary.completed === summary.totalSets ? " done" : ""}">${summary.completed}/${summary.totalSets} serii</span>
+      </div>
+      <div class="mobile-summary-grid">
+        <div><strong>${formatNumber(summary.volume)}</strong><span>Dnesni kg</span></div>
+        <div><strong>${day.exercises.length}</strong><span>Cviky</span></div>
+      </div>
+      ${renderMuscleChips(summarizeDayMuscles(day))}
+    </div>
   `;
 }
 
@@ -951,7 +973,7 @@ function renderSetRow(exerciseId, set, index) {
 function renderSidePanel(summary, daySummary, day) {
   return `
     <aside class="panel side-panel">
-      <div class="side-section">
+      <div class="side-section side-summary-section">
         <h2 class="section-title">Prehled</h2>
         <div class="metrics">
           <div class="metric"><strong>${daySummary.completed}/${daySummary.totalSets}</strong><span>Dnesni serie</span></div>
@@ -960,7 +982,7 @@ function renderSidePanel(summary, daySummary, day) {
           <div class="metric"><strong>${formatNumber(summary.volume)}</strong><span>Tydenni kg</span></div>
         </div>
       </div>
-      <div class="side-section">
+      <div class="side-section side-muscle-section">
         <h2 class="section-title">Partie dnes</h2>
         ${renderMuscleBreakdown(summarizeDayMuscles(day))}
       </div>
@@ -992,6 +1014,23 @@ function renderSidePanel(summary, daySummary, day) {
         </div>
       </div>
     </aside>
+  `;
+}
+
+function renderMuscleChips(groups) {
+  if (!groups.length) {
+    return `<div class="muscle-empty microcopy">Partie se ukazou po pridani cviku.</div>`;
+  }
+
+  return `
+    <div class="muscle-chips">
+      ${groups.map((group) => `
+        <span class="muscle-chip">
+          <strong>${escapeHtml(group.muscle)}</strong>
+          ${group.completed}/${group.totalSets}
+        </span>
+      `).join("")}
+    </div>
   `;
 }
 
