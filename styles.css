@@ -270,6 +270,10 @@ button:disabled {
   border-color: rgba(217, 155, 43, 0.38);
 }
 
+button.cloud-badge:hover {
+  border-color: var(--teal);
+}
+
 .shell {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr) 320px;
@@ -461,6 +465,10 @@ button:disabled {
 .auth-card h3 {
   margin: 0;
   font-size: 1rem;
+}
+
+.profile-card {
+  max-width: 520px;
 }
 
 .social-main {

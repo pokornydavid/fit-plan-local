@@ -66,7 +66,10 @@ async function boot() {
   registerServiceWorker();
   render();
   await initSupabase();
-  if (cloud.session) await loadCloudData();
+  if (cloud.session) {
+    await loadCloudData();
+    saveLocal();
+  }
   render();
 }
 
@@ -94,6 +97,7 @@ async function initSupabase() {
       if (session) {
         await ensureProfile();
         await loadCloudData();
+        saveLocal();
         showToast("Jsi prihlaseny.");
       } else {
         cloud.profile = null;
@@ -142,7 +146,7 @@ function createDefaultState() {
 function normalizeState(value, fallback = createDefaultState()) {
   const next = {
     theme: value?.theme === "light" ? "light" : "dark",
-    activeView: ["plan", "nutrition", "feed", "leaderboard"].includes(value?.activeView) ? value.activeView : "plan",
+    activeView: ["plan", "nutrition", "feed", "leaderboard", "profile"].includes(value?.activeView) ? value.activeView : "plan",
     selectedDay: Number.isInteger(value?.selectedDay) ? value.selectedDay : fallback.selectedDay,
     weekStart: value?.weekStart || fallback.weekStart,
     weeks: value?.weeks && typeof value.weeks === "object" ? value.weeks : fallback.weeks,
@@ -421,6 +425,8 @@ function render() {
   const lockedForAuth = cloud.configured && !cloud.session;
   const content = lockedForAuth
     ? renderAuthShell()
+    : state.activeView === "profile"
+      ? renderProfileShell()
     : state.activeView === "feed"
       ? renderFeedShell()
       : state.activeView === "leaderboard"
@@ -478,7 +484,6 @@ function render() {
       ${content}
     </div>
   `;
-  save();
 }
 
 function renderViewButton(view, label) {
@@ -488,7 +493,7 @@ function renderViewButton(view, label) {
 
 function renderCloudBadge() {
   if (cloud.session) {
-    return `<span class="cloud-badge online">${escapeHtml(profileName())}</span>`;
+    return `<button class="cloud-badge online" data-action="set-view" data-view="profile" title="Upravit profil">${escapeHtml(profileName())}</button>`;
   }
   if (cloud.configured) return `<span class="cloud-badge auth">Login ready</span>`;
   return `<span class="cloud-badge local">Local</span>`;
@@ -517,6 +522,27 @@ function renderAuthShell() {
             <button class="btn primary" type="submit">Vytvorit ucet</button>
           </form>
         </div>
+      </section>
+    </main>
+  `;
+}
+
+function renderProfileShell() {
+  return `
+    <main class="auth-shell">
+      <section class="auth-panel profile-panel">
+        <div>
+          <p class="eyebrow">Account</p>
+          <h2>Profil a prezdivka</h2>
+          <p class="auth-copy">Tohle jmeno se ukazuje nahore v appce, ve feedu a v leaderboardu.</p>
+        </div>
+        <form class="auth-card profile-card" data-profile-form>
+          <label class="field">
+            <span>Jmeno / prezdivka</span>
+            <input class="input" name="display_name" value="${escapeAttr(profileName())}" placeholder="Treba David" maxlength="40" required>
+          </label>
+          <button class="btn primary" type="submit">Ulozit profil</button>
+        </form>
       </section>
     </main>
   `;
@@ -981,12 +1007,13 @@ async function handleClick(event) {
 
   if (action === "set-view") {
     const nextView = target.dataset.view;
-    if (!["plan", "nutrition", "feed", "leaderboard"].includes(nextView)) return;
+    if (!["plan", "nutrition", "feed", "leaderboard", "profile"].includes(nextView)) return;
     state.activeView = nextView;
     saveLocal();
     render();
     if (nextView === "nutrition") await loadCloudNutritionWeek();
     if (nextView === "feed" || nextView === "leaderboard") await loadSocialData();
+    if (nextView === "nutrition") saveLocal();
     render();
     return;
   }
@@ -1006,6 +1033,7 @@ async function handleClick(event) {
 
   if (action === "toggle-theme") {
     state.theme = state.theme === "dark" ? "light" : "dark";
+    saveLocal();
     render();
     return;
   }
@@ -1027,6 +1055,7 @@ async function handleClick(event) {
     await loadCloudWeek();
     await loadCloudNutritionWeek();
     await loadSocialData();
+    saveLocal();
     render();
     return;
   }
@@ -1042,6 +1071,7 @@ async function handleClick(event) {
     await loadCloudWeek();
     await loadCloudNutritionWeek();
     await loadSocialData();
+    saveLocal();
     render();
     return;
   }
@@ -1053,6 +1083,7 @@ async function handleClick(event) {
       return;
     }
     state.nutrition[state.weekStart] = cloneNutritionWeek(state.nutrition[previousStart], true);
+    save();
     render();
     showToast("Nutrition targets zkopirovany.");
     return;
@@ -1065,6 +1096,7 @@ async function handleClick(event) {
       return;
     }
     state.weeks[state.weekStart] = cloneWeek(state.weeks[previousStart], true);
+    save();
     render();
     showToast("Tyden zkopirovan.");
     return;
@@ -1073,6 +1105,7 @@ async function handleClick(event) {
   if (action === "sample-week") {
     if (!confirm("Prepsat aktualni tyden ukazkovym planem?")) return;
     state.weeks[state.weekStart] = createSampleWeek();
+    save();
     render();
     showToast("Ukazkovy plan nahran.");
     return;
@@ -1081,6 +1114,7 @@ async function handleClick(event) {
   if (action === "clear-day") {
     if (!confirm("Vycistit vybrany den?")) return;
     week[state.selectedDay] = createBlankWeek()[state.selectedDay];
+    save();
     render();
     return;
   }
@@ -1107,6 +1141,7 @@ async function handleClick(event) {
     }
     day.exercises.push(createExercise(name, muscleInput.value));
     nameInput.value = "";
+    save();
     render();
     return;
   }
@@ -1115,6 +1150,7 @@ async function handleClick(event) {
     const id = target.dataset.exerciseId;
     const index = day.exercises.findIndex((exercise) => exercise.id === id);
     if (index >= 0) day.exercises.splice(index, 1);
+    save();
     render();
     return;
   }
@@ -1128,6 +1164,7 @@ async function handleClick(event) {
       weight: last.weight,
       rpe: last.rpe
     }));
+    save();
     render();
     return;
   }
@@ -1137,6 +1174,7 @@ async function handleClick(event) {
     if (!exercise) return;
     exercise.sets = exercise.sets.filter((set) => set.id !== target.dataset.setId);
     if (!exercise.sets.length) exercise.sets.push(createSet());
+    save();
     render();
     return;
   }
@@ -1144,6 +1182,7 @@ async function handleClick(event) {
   if (action === "template-ppl") {
     if (!confirm("Prepsat aktualni tyden sablonou PPL?")) return;
     state.weeks[state.weekStart] = createSampleWeek();
+    save();
     render();
     return;
   }
@@ -1151,6 +1190,7 @@ async function handleClick(event) {
   if (action === "template-fullbody") {
     if (!confirm("Prepsat aktualni tyden full body sablonou?")) return;
     state.weeks[state.weekStart] = createFullBodyWeek();
+    save();
     render();
     return;
   }
@@ -1165,12 +1205,14 @@ async function handleClick(event) {
       return;
     }
     state.library.push(libraryItem(name, muscleInput.value));
+    saveLocal();
     render();
     return;
   }
 
   if (action === "remove-library-item") {
     state.library = state.library.filter((item) => item.id !== target.dataset.libraryId);
+    saveLocal();
     render();
     return;
   }
@@ -1186,6 +1228,12 @@ async function handleClick(event) {
 }
 
 async function handleSubmit(event) {
+  if (event.target.dataset.profileForm !== undefined) {
+    event.preventDefault();
+    await saveProfileForm(event.target);
+    return;
+  }
+
   const authMode = event.target.dataset.authForm;
   if (!authMode) return;
   event.preventDefault();
@@ -1213,6 +1261,40 @@ async function handleSubmit(event) {
     }
     showToast("Registrace hotova. Kdyz Supabase vyzaduje potvrzeni, mrkni do emailu.");
   }
+}
+
+async function saveProfileForm(formElement) {
+  if (!cloud.client || !cloud.session) {
+    showToast("Pro profil se nejdriv prihlas.");
+    return;
+  }
+
+  const form = new FormData(formElement);
+  const displayName = String(form.get("display_name") || "").trim();
+  if (!displayName) {
+    showToast("Napis prezdivku.");
+    return;
+  }
+
+  const { data, error } = await cloud.client
+    .from("profiles")
+    .update({
+      display_name: displayName,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", cloud.session.user.id)
+    .select("*")
+    .single();
+
+  if (error) {
+    console.warn(error);
+    showCloudError("Profil se nepodarilo ulozit.", error);
+    return;
+  }
+
+  cloud.profile = data;
+  render();
+  showToast("Profil ulozen.");
 }
 
 function handleInput(event) {
@@ -1613,7 +1695,7 @@ function scheduleCloudSync() {
   cloudSyncTimer = setTimeout(() => {
     saveSelectedDayToCloud().catch((error) => {
       console.warn(error);
-      showToast("Cloud ulozeni se nepovedlo.");
+      showCloudError("Cloud ulozeni se nepovedlo.", error);
     });
   }, 650);
 }
@@ -1624,7 +1706,7 @@ function scheduleNutritionSync() {
   nutritionSyncTimer = setTimeout(() => {
     saveNutritionToCloud().catch((error) => {
       console.warn(error);
-      showToast("Nutrition cloud ulozeni se nepovedlo.");
+      showCloudError("Nutrition cloud ulozeni se nepovedlo.", error);
     });
   }, 650);
 }
@@ -1712,6 +1794,7 @@ function addLibraryExercise(id) {
   const item = state.library.find((entry) => entry.id === id);
   if (!item) return;
   ensureWeek()[state.selectedDay].exercises.push(createExercise(item.name, item.muscle));
+  save();
   render();
 }
 
@@ -1859,7 +1942,14 @@ function showToast(message) {
   clearTimeout(toastTimer);
   toast.textContent = message;
   toast.classList.add("show");
-  toastTimer = setTimeout(() => toast.classList.remove("show"), 2200);
+  toastTimer = setTimeout(() => toast.classList.remove("show"), 3200);
+}
+
+function showCloudError(prefix, error) {
+  const message = error?.code === "PGRST205"
+    ? `${prefix} V Supabase chybi tabulka. Spust SQL patch.`
+    : `${prefix} ${error?.message || ""}`.trim();
+  showToast(message);
 }
 
 function applyTheme() {
