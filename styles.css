@@ -728,6 +728,65 @@ button.cloud-badge:hover {
   gap: 10px;
 }
 
+.phase-card {
+  background: linear-gradient(180deg, var(--surface-2), var(--control));
+}
+
+.phase-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(140px, 0.6fr) minmax(140px, 0.6fr);
+  gap: 10px;
+}
+
+.phase-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.phase-summary div {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field-bg);
+}
+
+.phase-summary strong,
+.phase-summary span {
+  display: block;
+}
+
+.phase-summary strong {
+  font-size: 1.15rem;
+}
+
+.phase-summary span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.phase-list {
+  display: grid;
+  gap: 8px;
+}
+
+.phase-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.7fr) minmax(100px, 0.55fr) minmax(100px, 0.55fr) minmax(170px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.phase-row-head {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 2px;
+}
+
 .nutrition-table {
   width: 100%;
   min-width: 900px;
@@ -1374,6 +1433,23 @@ button.cloud-badge:hover {
   .nutrition-day-cards {
     display: grid;
     gap: 10px;
+  }
+
+  .phase-settings,
+  .phase-summary,
+  .phase-row {
+    grid-template-columns: 1fr;
+  }
+
+  .phase-row {
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--field-bg);
+  }
+
+  .phase-row-head {
+    display: none;
   }
 
   .exercise-head {
