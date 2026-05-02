@@ -753,6 +753,13 @@ button.cloud-badge:hover {
   padding-bottom: 16px;
 }
 
+.nutrition-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .nutrition-head h2,
 .nutrition-card h3 {
   margin: 0;
@@ -1628,6 +1635,15 @@ button.cloud-badge:hover {
   .leader-row {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .nutrition-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .nutrition-actions .btn {
+    width: 100%;
   }
 
   .metrics {

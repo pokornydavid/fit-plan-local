@@ -870,7 +870,10 @@ function renderNutritionShell(nutrition, summary) {
             <h2>Weekly calorie system</h2>
             <p class="auth-copy">Plan calories, macros and bodyweight in the same place as training. Built for cutting, bulking and clean weekly check-ins.</p>
           </div>
-          <button class="btn" data-action="copy-nutrition-prev-week">Copy last week</button>
+          <div class="nutrition-actions">
+            <button class="btn" data-action="copy-nutrition-prev-week">Copy last week</button>
+            <button class="btn danger" data-action="reset-nutrition-data">Vycistit nutrition</button>
+          </div>
         </div>
         <div class="nutrition-metrics">
           <div class="metric hero-metric"><strong data-nutrition-summary="totalCalories">${formatNumber(summary.totalCalories)}</strong><span>Current kcal</span></div>
@@ -1592,6 +1595,11 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "reset-nutrition-data") {
+    await resetNutritionData();
+    return;
+  }
+
   if (action === "resend-confirmation") {
     await resendConfirmationEmail();
     return;
@@ -2099,6 +2107,32 @@ async function resetAccountData() {
   await loadSocialData();
   render();
   showToast("Ucet je vycisteny.");
+}
+
+async function resetNutritionData() {
+  if (!confirm("Vycistit nutrition data jen pro aktualni ucet? Treningovy plan zustane.")) return;
+  if (!confirm("Posledni kontrola: smaze se nutrition cloud i lokalni nutrition na tomhle uctu.")) return;
+
+  if (cloud.client && cloud.session) {
+    const { error } = await cloud.client
+      .from("nutrition_weeks")
+      .delete()
+      .eq("user_id", cloud.session.user.id);
+    if (error) {
+      console.warn(error);
+      showCloudError("Nutrition data se nepodarilo vymazat.", error);
+      return;
+    }
+  }
+
+  state.nutrition = {};
+  state.nutritionPhase = createNutritionPhase();
+  ensureNutritionWeek();
+  pendingSync.nutrition = {};
+  saveLocal();
+  savePendingSync();
+  render();
+  showToast("Nutrition vycistena.");
 }
 
 function handleInput(event) {
