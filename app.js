@@ -3,6 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
+const CLOUD_INIT_TIMEOUT_MS = 7000;
 const DEFAULT_PHASE_WEEKS = 16;
 const DAY_LABELS = [
   ["Po", "Pondeli"],
@@ -94,20 +95,20 @@ async function boot() {
 
 async function initSupabase() {
   try {
-    const config = await import("./supabase-config.js");
+    const config = await withTimeout(import("./supabase-config.js"), CLOUD_INIT_TIMEOUT_MS, "Supabase config timeout");
     if (!config.SUPABASE_URL || !config.SUPABASE_ANON_KEY) {
       cloud.ready = true;
       cloud.configured = false;
       return;
     }
 
-    const { createClient } = await import(SUPABASE_MODULE_URL);
+    const { createClient } = await withTimeout(import(SUPABASE_MODULE_URL), CLOUD_INIT_TIMEOUT_MS, "Supabase client timeout");
     cloud.client = createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY);
     cloud.configured = true;
     cloud.status = "auth";
     cloud.message = "Supabase je pripraveny.";
 
-    const { data } = await cloud.client.auth.getSession();
+    const { data } = await withTimeout(cloud.client.auth.getSession(), CLOUD_INIT_TIMEOUT_MS, "Supabase session timeout");
     cloud.session = data.session;
     if (cloud.session) {
       activateUserStorage(cloud.session.user.id);
@@ -142,12 +143,24 @@ async function initSupabase() {
       render();
     });
   } catch (error) {
+    cloud.configured = false;
+    cloud.client = null;
+    cloud.session = null;
     cloud.status = "local";
-    cloud.message = "Supabase se nepodarilo nacist. Lokalni rezim zustava aktivni.";
+    cloud.message = "Cloud se nacital moc dlouho. Zkus refresh, appka zatim bezi lokalne.";
     console.warn(error);
   } finally {
     cloud.ready = true;
   }
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(message)), timeoutMs);
+    })
+  ]);
 }
 
 function loadState(storageKey = activeStorageKey, fallback = createDefaultState()) {
