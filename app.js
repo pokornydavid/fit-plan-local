@@ -1220,7 +1220,7 @@ function renderFeedExercises(exercises) {
   if (!exercises.length) return "";
   return `
     <div class="feed-exercises">
-      ${exercises.slice(0, 4).map((exercise) => `
+      ${exercises.map((exercise) => `
         <span>${escapeHtml(exercise.name)} - ${exercise.sets?.length || 0}x</span>
       `).join("")}
     </div>
