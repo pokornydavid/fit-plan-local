@@ -43,6 +43,8 @@ let cloud = {
   profile: null,
   feed: [],
   leaderboard: [],
+  authNotice: null,
+  pendingEmail: "",
   status: "local",
   message: "Supabase neni pripojeny. Appka zatim uklada lokalne.",
   loading: false
@@ -106,6 +108,8 @@ async function initSupabase() {
     cloud.client.auth.onAuthStateChange(async (_event, session) => {
       cloud.session = session;
       if (session) {
+        cloud.authNotice = null;
+        cloud.pendingEmail = "";
         await ensureProfile();
         await flushPendingSync();
         await loadCloudData();
@@ -115,6 +119,8 @@ async function initSupabase() {
         cloud.profile = null;
         cloud.feed = [];
         cloud.leaderboard = [];
+        cloud.authNotice = null;
+        cloud.pendingEmail = "";
       }
       render();
     });
@@ -661,6 +667,7 @@ function renderAuthShell() {
           <h2>Train, eat and track progress in one place</h2>
           <p class="auth-copy">Sync workouts, calories, macros and bodyweight across devices. Share public sessions and build a weekly leaderboard around consistency.</p>
         </div>
+        ${renderAuthNotice()}
         <div class="auth-grid">
           <form class="auth-card" data-auth-form="sign-in">
             <h3>Prihlasit</h3>
@@ -670,6 +677,7 @@ function renderAuthShell() {
           </form>
           <form class="auth-card" data-auth-form="sign-up">
             <h3>Registrace</h3>
+            <p class="microcopy">Po registraci ti prijde overovaci e-mail. Otevri ho, potvrd ucet a potom se prihlas.</p>
             <input class="input" name="email" type="email" autocomplete="email" placeholder="Email" required>
             <input class="input" name="password" type="password" autocomplete="new-password" minlength="6" placeholder="Heslo min. 6 znaku" required>
             <button class="btn primary" type="submit">Vytvorit ucet</button>
@@ -677,6 +685,25 @@ function renderAuthShell() {
         </div>
       </section>
     </main>
+  `;
+}
+
+function renderAuthNotice() {
+  if (!cloud.authNotice) {
+    return `
+      <div class="auth-notice">
+        <strong>Registrace je pres e-mail.</strong>
+        <span>Po vytvoreni uctu prijde potvrzovaci odkaz. Bez potvrzeni se ucet nemusi pustit do appky.</span>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="auth-notice ${cloud.authNotice.type || ""}">
+      <strong>${escapeHtml(cloud.authNotice.title)}</strong>
+      <span>${escapeHtml(cloud.authNotice.text)}</span>
+      ${cloud.pendingEmail ? `<button class="btn" data-action="resend-confirmation">Poslat e-mail znovu</button>` : ""}
+    </div>
   `;
 }
 
@@ -1389,6 +1416,11 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "resend-confirmation") {
+    await resendConfirmationEmail();
+    return;
+  }
+
   if (action === "refresh-social") {
     await loadSocialData();
     render();
@@ -1651,18 +1683,85 @@ async function handleSubmit(event) {
 
   if (authMode === "sign-in") {
     const { error } = await cloud.client.auth.signInWithPassword({ email, password });
-    if (error) showToast(error.message);
+    if (error) {
+      cloud.authNotice = {
+        type: "error",
+        title: "Prihlaseni se nepovedlo",
+        text: friendlyAuthError(error)
+      };
+      cloud.pendingEmail = error.message?.toLowerCase().includes("confirm") ? email : cloud.pendingEmail;
+      render();
+      showToast(cloud.authNotice.text);
+    }
     return;
   }
 
   if (authMode === "sign-up") {
-    const { error } = await cloud.client.auth.signUp({ email, password });
+    const { data, error } = await cloud.client.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: authRedirectUrl()
+      }
+    });
     if (error) {
-      showToast(error.message);
+      cloud.authNotice = {
+        type: "error",
+        title: "Registrace se nepovedla",
+        text: friendlyAuthError(error)
+      };
+      cloud.pendingEmail = email;
+      render();
+      showToast(cloud.authNotice.text);
       return;
     }
-    showToast("Registrace hotova. Kdyz Supabase vyzaduje potvrzeni, mrkni do emailu.");
+
+    event.target.reset();
+    cloud.pendingEmail = email;
+    cloud.authNotice = data.session
+      ? {
+        type: "success",
+        title: "Ucet je vytvoreny",
+        text: "Jsi prihlaseny. Kdyby te appka odhlasila, staci se prihlasit stejnym e-mailem a heslem."
+      }
+      : {
+        type: "success",
+        title: "Zkontroluj e-mail",
+        text: `Na ${email} prisel overovaci odkaz. Otevri ho, potvrd ucet a potom se prihlas. Mrkni i do spamu nebo hromadne posty.`
+      };
+    render();
+    showToast(data.session ? "Ucet vytvoren." : "Overovaci e-mail odeslan.");
   }
+}
+
+async function resendConfirmationEmail() {
+  if (!cloud.client || !cloud.pendingEmail) return;
+  const { error } = await cloud.client.auth.resend({
+    type: "signup",
+    email: cloud.pendingEmail,
+    options: {
+      emailRedirectTo: authRedirectUrl()
+    }
+  });
+
+  if (error) {
+    cloud.authNotice = {
+      type: "error",
+      title: "E-mail se nepodarilo poslat",
+      text: friendlyAuthError(error)
+    };
+    render();
+    showToast(cloud.authNotice.text);
+    return;
+  }
+
+  cloud.authNotice = {
+    type: "success",
+    title: "E-mail poslan znovu",
+    text: `Na ${cloud.pendingEmail} jsme poslali novy overovaci odkaz.`
+  };
+  render();
+  showToast("Overovaci e-mail poslan znovu.");
 }
 
 async function saveProfileForm(formElement) {
@@ -2563,6 +2662,27 @@ function showCloudError(prefix, error) {
     ? `${prefix} V Supabase chybi tabulka. Spust SQL patch.`
     : `${prefix} ${error?.message || ""}`.trim();
   showToast(message);
+}
+
+function friendlyAuthError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  if (message.includes("email not confirmed") || message.includes("not confirmed")) {
+    return "Ucet jeste neni overeny. Otevri potvrzovaci e-mail, klikni na odkaz a potom se prihlas znovu.";
+  }
+  if (message.includes("invalid login") || message.includes("invalid credentials")) {
+    return "E-mail nebo heslo nesedi. Zkontroluj udaje, pripadne nejdriv potvrd ucet v e-mailu.";
+  }
+  if (message.includes("already registered") || message.includes("already been registered")) {
+    return "Tenhle e-mail uz ucet ma. Zkus se prihlasit, nebo si nech poslat novy overovaci e-mail.";
+  }
+  if (message.includes("password")) {
+    return "Heslo musi mit aspon 6 znaku.";
+  }
+  return error?.message || "Akce se nepovedla. Zkus to prosim znovu.";
+}
+
+function authRedirectUrl() {
+  return `${window.location.origin}${window.location.pathname}`;
 }
 
 function applyTheme() {
