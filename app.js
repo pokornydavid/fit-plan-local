@@ -621,7 +621,7 @@ function render() {
             <button class="icon-btn" data-action="prev-week" title="Predchozi tyden" aria-label="Predchozi tyden">&lt;</button>
             <div class="week-label">
               <strong>${weekRangeLabel(state.weekStart)}</strong>
-              <span>${state.activeView === "nutrition" ? `${formatNumber(nutritionSummary.totalCalories)}/${formatNumber(nutrition.goals.weeklyCalories)} kcal` : `${summary.completed}/${summary.totalSets} serii hotovo`}</span>
+              <span ${state.activeView === "nutrition" ? `data-nutrition-summary="header"` : ""}>${state.activeView === "nutrition" ? `${formatNumber(nutritionSummary.totalCalories)}/${formatNumber(nutrition.goals.weeklyCalories)} kcal` : `${summary.completed}/${summary.totalSets} serii hotovo`}</span>
             </div>
             <button class="icon-btn" data-action="next-week" title="Dalsi tyden" aria-label="Dalsi tyden">&gt;</button>
             <button class="btn" data-action="today">Dnes</button>
@@ -781,19 +781,19 @@ function renderNutritionShell(nutrition, summary) {
           <button class="btn" data-action="copy-nutrition-prev-week">Copy last week</button>
         </div>
         <div class="nutrition-metrics">
-          <div class="metric hero-metric"><strong>${formatNumber(summary.totalCalories)}</strong><span>Current kcal</span></div>
-          <div class="metric"><strong>${formatNumber(summary.remainingCalories)}</strong><span>Remaining weekly kcal</span></div>
-          <div class="metric"><strong>${formatNumber(summary.averageCalories)}</strong><span>Daily average</span></div>
-          <div class="metric"><strong>${summary.daysLogged}/7</strong><span>Days logged</span></div>
+          <div class="metric hero-metric"><strong data-nutrition-summary="totalCalories">${formatNumber(summary.totalCalories)}</strong><span>Current kcal</span></div>
+          <div class="metric"><strong data-nutrition-summary="remainingCalories">${formatNumber(summary.remainingCalories)}</strong><span>Remaining weekly kcal</span></div>
+          <div class="metric"><strong data-nutrition-summary="averageCalories">${formatNumber(summary.averageCalories)}</strong><span>Daily average</span></div>
+          <div class="metric"><strong data-nutrition-summary="daysLogged">${summary.daysLogged}/7</strong><span>Days logged</span></div>
         </div>
         <div class="nutrition-progress">
-          <span style="--value:${summary.progress}%"></span>
+          <span data-nutrition-progress style="--value:${summary.progress}%"></span>
         </div>
         <div class="nutrition-grid">
           <section class="nutrition-card">
             <div class="section-row">
               <h3>Weekly targets</h3>
-              <span class="pill">${summary.progress}%</span>
+              <span class="pill" data-nutrition-summary="progress">${summary.progress}%</span>
             </div>
             <div class="goal-grid">
               ${renderNutritionGoal("weeklyCalories", "Weekly kcal", nutrition.goals.weeklyCalories, 100)}
@@ -810,12 +810,12 @@ function renderNutritionShell(nutrition, summary) {
           <section class="nutrition-card">
             <div class="section-row">
               <h3>Current macros</h3>
-              <span class="pill done">${formatNumber(summary.totalProtein)}P / ${formatNumber(summary.totalCarbs)}C / ${formatNumber(summary.totalFat)}F</span>
+              <span class="pill done" data-nutrition-summary="macroTotals">${formatNumber(summary.totalProtein)}P / ${formatNumber(summary.totalCarbs)}C / ${formatNumber(summary.totalFat)}F</span>
             </div>
             <div class="macro-bars">
-              ${renderMacroBar("Protein", summary.totalProtein, nutrition.goals.protein * 7)}
-              ${renderMacroBar("Carbs", summary.totalCarbs, nutrition.goals.carbs * 7)}
-              ${renderMacroBar("Fat", summary.totalFat, nutrition.goals.fat * 7)}
+              ${renderMacroBar("Protein", "protein", summary.totalProtein, nutrition.goals.protein * 7)}
+              ${renderMacroBar("Carbs", "carbs", summary.totalCarbs, nutrition.goals.carbs * 7)}
+              ${renderMacroBar("Fat", "fat", summary.totalFat, nutrition.goals.fat * 7)}
             </div>
           </section>
         </div>
@@ -1002,15 +1002,15 @@ function renderNutritionGoal(field, label, value, step) {
   `;
 }
 
-function renderMacroBar(label, value, goal) {
+function renderMacroBar(label, key, value, goal) {
   const percent = goal ? Math.min(100, Math.round((value / goal) * 100)) : 0;
   return `
-    <div class="macro-row">
+    <div class="macro-row" data-macro-row="${key}">
       <div>
         <strong>${label}</strong>
-        <span>${formatNumber(value)} / ${formatNumber(goal)} g</span>
+        <span data-macro-text>${formatNumber(value)} / ${formatNumber(goal)} g</span>
       </div>
-      <div class="progress"><span style="--value:${percent}%"></span></div>
+      <div class="progress"><span data-macro-progress style="--value:${percent}%"></span></div>
     </div>
   `;
 }
@@ -1807,12 +1807,15 @@ function handleInput(event) {
 
   if (field === "nutrition-day") {
     updateNutritionDay(event.target);
+    syncNutritionInputs(event.target);
+    refreshNutritionSummary();
     save();
     return;
   }
 
   if (field === "nutrition-goal") {
     updateNutritionGoal(event.target);
+    refreshNutritionSummary();
     save();
     return;
   }
@@ -1877,12 +1880,15 @@ function handleChange(event) {
 
   if (field === "nutrition-day") {
     updateNutritionDay(event.target);
+    syncNutritionInputs(event.target);
+    refreshNutritionSummary();
     save();
     return;
   }
 
   if (field === "nutrition-goal") {
     updateNutritionGoal(event.target);
+    refreshNutritionSummary();
     save();
     return;
   }
@@ -2408,6 +2414,58 @@ function updateNutritionGoal(input) {
   const field = input.dataset.goal;
   if (!field) return;
   nutrition.goals[field] = toNumber(input.value, 0);
+}
+
+function syncNutritionInputs(sourceInput) {
+  const day = sourceInput.dataset.day;
+  const field = sourceInput.dataset.nutrition;
+  if (day === undefined || !field) return;
+
+  document
+    .querySelectorAll("[data-field='nutrition-day']")
+    .forEach((input) => {
+      if (input !== sourceInput && input.dataset.day === day && input.dataset.nutrition === field) {
+        input.value = sourceInput.value;
+      }
+    });
+}
+
+function refreshNutritionSummary() {
+  if (state.activeView !== "nutrition") return;
+  const nutrition = ensureNutritionWeek();
+  const summary = summarizeNutrition(nutrition);
+
+  setText("[data-nutrition-summary='header']", `${formatNumber(summary.totalCalories)}/${formatNumber(nutrition.goals.weeklyCalories)} kcal`);
+  setText("[data-nutrition-summary='totalCalories']", formatNumber(summary.totalCalories));
+  setText("[data-nutrition-summary='remainingCalories']", formatNumber(summary.remainingCalories));
+  setText("[data-nutrition-summary='averageCalories']", formatNumber(summary.averageCalories));
+  setText("[data-nutrition-summary='daysLogged']", `${summary.daysLogged}/7`);
+  setText("[data-nutrition-summary='progress']", `${summary.progress}%`);
+  setText("[data-nutrition-summary='macroTotals']", `${formatNumber(summary.totalProtein)}P / ${formatNumber(summary.totalCarbs)}C / ${formatNumber(summary.totalFat)}F`);
+
+  document.querySelectorAll("[data-nutrition-progress]").forEach((bar) => {
+    bar.style.setProperty("--value", `${summary.progress}%`);
+  });
+
+  refreshMacroSummary("protein", summary.totalProtein, nutrition.goals.protein * 7);
+  refreshMacroSummary("carbs", summary.totalCarbs, nutrition.goals.carbs * 7);
+  refreshMacroSummary("fat", summary.totalFat, nutrition.goals.fat * 7);
+}
+
+function refreshMacroSummary(key, value, goal) {
+  const percent = goal ? Math.min(100, Math.round((value / goal) * 100)) : 0;
+  document.querySelectorAll(`[data-macro-row="${key}"]`).forEach((row) => {
+    const label = row.querySelector("[data-macro-text]");
+    const bar = row.querySelector("[data-macro-progress]");
+    if (label) label.textContent = `${formatNumber(value)} / ${formatNumber(goal)} g`;
+    if (bar) bar.style.setProperty("--value", `${percent}%`);
+  });
+}
+
+function setText(selector, text) {
+  document.querySelectorAll(selector).forEach((element) => {
+    element.textContent = text;
+  });
 }
 
 function updateNutritionPhase(input) {
