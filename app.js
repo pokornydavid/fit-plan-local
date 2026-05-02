@@ -45,6 +45,7 @@ let cloud = {
   leaderboard: [],
   authNotice: null,
   pendingEmail: "",
+  passwordRecovery: false,
   status: "local",
   message: "Supabase neni pripojeny. Appka zatim uklada lokalne.",
   loading: false
@@ -105,22 +106,28 @@ async function initSupabase() {
     cloud.session = data.session;
     if (cloud.session) await ensureProfile();
 
-    cloud.client.auth.onAuthStateChange(async (_event, session) => {
+    cloud.client.auth.onAuthStateChange(async (event, session) => {
       cloud.session = session;
+      if (event === "PASSWORD_RECOVERY") cloud.passwordRecovery = true;
       if (session) {
-        cloud.authNotice = null;
-        cloud.pendingEmail = "";
+        if (!cloud.passwordRecovery) {
+          cloud.authNotice = null;
+          cloud.pendingEmail = "";
+        }
         await ensureProfile();
-        await flushPendingSync();
-        await loadCloudData();
-        saveLocal();
-        showToast("Jsi prihlaseny.");
+        if (!cloud.passwordRecovery) {
+          await flushPendingSync();
+          await loadCloudData();
+          saveLocal();
+          showToast("Jsi prihlaseny.");
+        }
       } else {
         cloud.profile = null;
         cloud.feed = [];
         cloud.leaderboard = [];
         cloud.authNotice = null;
         cloud.pendingEmail = "";
+        cloud.passwordRecovery = false;
       }
       render();
     });
@@ -568,6 +575,8 @@ function render() {
   const lockedForAuth = cloud.configured && !cloud.session;
   const content = lockedForAuth
     ? renderAuthShell()
+    : cloud.passwordRecovery
+      ? renderPasswordResetShell()
     : state.activeView === "profile"
       ? renderProfileShell()
     : state.activeView === "feed"
@@ -658,6 +667,7 @@ function renderAuthShell() {
             <input class="input" name="email" type="email" autocomplete="email" placeholder="Email" required>
             <input class="input" name="password" type="password" autocomplete="current-password" placeholder="Heslo" required>
             <button class="btn primary" type="submit">Prihlasit</button>
+            <button class="text-btn" type="button" data-action="forgot-password">Zapomenute heslo?</button>
           </form>
           <form class="auth-card" data-auth-form="sign-up">
             <h3>Registrace</h3>
@@ -688,6 +698,27 @@ function renderAuthNotice() {
       <span>${escapeHtml(cloud.authNotice.text)}</span>
       ${cloud.pendingEmail ? `<button class="btn" data-action="resend-confirmation">Poslat e-mail znovu</button>` : ""}
     </div>
+  `;
+}
+
+function renderPasswordResetShell() {
+  return `
+    <main class="auth-shell">
+      <section class="auth-panel profile-panel">
+        <div>
+          <p class="eyebrow">Password reset</p>
+          <h2>Nastav nove heslo</h2>
+          <p class="auth-copy">Po ulozeni se normalne vratis do appky a muzes se prihlasovat novym heslem.</p>
+        </div>
+        <form class="auth-card profile-card" data-reset-password-form>
+          <label class="field">
+            <span>Nove heslo</span>
+            <input class="input" name="password" type="password" autocomplete="new-password" minlength="6" placeholder="Min. 6 znaku" required>
+          </label>
+          <button class="btn primary" type="submit">Ulozit nove heslo</button>
+        </form>
+      </section>
+    </main>
   `;
 }
 
@@ -1049,25 +1080,31 @@ function renderSocialEmpty(message) {
 function renderFeedCard(row) {
   const profile = row.profile || {};
   const dayLabel = DAY_LABELS[row.day_index]?.[1] || "Den";
+  const workoutDate = addDays(parseDate(row.week_start), Number(row.day_index) || 0);
   const title = row.title || dayLabel;
+  const exercises = row.payload?.exercises || [];
   return `
-    <article class="feed-card">
-      <div class="feed-top">
-        <div>
-          <strong>${escapeHtml(profile.display_name || profile.username || "Sportovec")}</strong>
-          <span>${escapeHtml(formatCloudDate(row.updated_at))}</span>
+    <details class="feed-card">
+      <summary class="feed-summary">
+        <div class="feed-top">
+          <div>
+            <strong>${escapeHtml(profile.display_name || profile.username || "Sportovec")}</strong>
+            <span>${escapeHtml(formatCloudDate(row.updated_at))}</span>
+          </div>
+          <span class="pill done">${formatNumber(row.volume)} kg</span>
         </div>
-        <span class="pill done">${formatNumber(row.volume)} kg</span>
-      </div>
-      <h3>${escapeHtml(title)}</h3>
-      <p>${escapeHtml(row.focus || "Trenink")}</p>
-      <div class="feed-stats">
-        <span>${row.completed_sets}/${row.total_sets} serii</span>
-        <span>${escapeHtml(dayLabel)}</span>
-        <span>${escapeHtml(row.week_start)}</span>
-      </div>
-      ${renderFeedExercises(row.payload?.exercises || [])}
-    </article>
+        <h3>${escapeHtml(title)}</h3>
+        <p>${escapeHtml(row.focus || "Trenink")}</p>
+        <div class="feed-stats">
+          <span>${row.completed_sets}/${row.total_sets} serii</span>
+          <span>${escapeHtml(dayLabel)}</span>
+          <span>${escapeHtml(formatShortDate(workoutDate))}</span>
+        </div>
+        ${renderFeedExercises(exercises)}
+        <span class="feed-detail-toggle">Rozkliknout detail</span>
+      </summary>
+      ${renderFeedWorkoutDetails(exercises)}
+    </details>
   `;
 }
 
@@ -1078,6 +1115,68 @@ function renderFeedExercises(exercises) {
       ${exercises.slice(0, 4).map((exercise) => `
         <span>${escapeHtml(exercise.name)} - ${exercise.sets?.length || 0}x</span>
       `).join("")}
+    </div>
+  `;
+}
+
+function renderFeedWorkoutDetails(exercises) {
+  if (!exercises.length) {
+    return `<div class="feed-detail microcopy">Detail cviku u tohohle treningu neni ulozeny.</div>`;
+  }
+
+  return `
+    <div class="feed-detail">
+      ${exercises.map((exercise, index) => renderFeedExerciseDetail(exercise, index)).join("")}
+    </div>
+  `;
+}
+
+function renderFeedExerciseDetail(exercise, index) {
+  const sets = Array.isArray(exercise.sets) ? exercise.sets : [];
+  const completed = sets.filter((set) => set.done).length;
+  const volume = sets.reduce((sum, set) => sum + toNumber(set.reps, 0) * toNumber(set.weight, 0), 0);
+  return `
+    <div class="feed-exercise-detail">
+      <div class="feed-exercise-head">
+        <div>
+          <span>Cvik ${index + 1}</span>
+          <strong>${escapeHtml(exercise.name || "Cvik")}</strong>
+          <small>${escapeHtml(exercise.muscle || "Full body")}</small>
+        </div>
+        <span class="pill">${completed}/${sets.length} serii - ${formatNumber(volume)} kg</span>
+      </div>
+      ${renderFeedSetTable(sets)}
+      ${exercise.notes ? `<p class="feed-note">${escapeHtml(exercise.notes)}</p>` : ""}
+    </div>
+  `;
+}
+
+function renderFeedSetTable(sets) {
+  if (!sets.length) return `<div class="microcopy">Bez serii.</div>`;
+  return `
+    <div class="feed-set-wrap">
+      <table class="feed-set-table">
+        <thead>
+          <tr>
+            <th>Serie</th>
+            <th>Hotovo</th>
+            <th>Opak.</th>
+            <th>Kg</th>
+            <th>RPE</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sets.map((set, index) => `
+            <tr class="${set.done ? "done" : ""}">
+              <td>${index + 1}</td>
+              <td>${set.done ? "Ano" : "-"}</td>
+              <td>${formatNumber(toNumber(set.reps, 0))}</td>
+              <td>${formatNumber(toNumber(set.weight, 0))}</td>
+              <td>${formatNumber(toNumber(set.rpe, 0))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
     </div>
   `;
 }
@@ -1416,7 +1515,14 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "forgot-password") {
+    const email = document.querySelector('[data-auth-form="sign-in"] input[name="email"]')?.value.trim() || "";
+    await sendPasswordResetEmail(email);
+    return;
+  }
+
   if (action === "refresh-social") {
+    await flushPendingSync();
     await loadSocialData();
     render();
     showToast("Data obnovena.");
@@ -1665,6 +1771,12 @@ async function handleClick(event) {
 }
 
 async function handleSubmit(event) {
+  if (event.target.dataset.resetPasswordForm !== undefined) {
+    event.preventDefault();
+    await saveNewPassword(event.target);
+    return;
+  }
+
   if (event.target.dataset.profileForm !== undefined) {
     event.preventDefault();
     await saveProfileForm(event.target);
@@ -1692,7 +1804,7 @@ async function handleSubmit(event) {
         title: "Prihlaseni se nepovedlo",
         text: friendlyAuthError(error)
       };
-      cloud.pendingEmail = error.message?.toLowerCase().includes("confirm") ? email : cloud.pendingEmail;
+      cloud.pendingEmail = error.message?.toLowerCase().includes("confirm") ? email : "";
       render();
       showToast(cloud.authNotice.text);
     }
@@ -1765,6 +1877,80 @@ async function resendConfirmationEmail() {
   };
   render();
   showToast("Overovaci e-mail poslan znovu.");
+}
+
+async function sendPasswordResetEmail(email) {
+  if (!cloud.client) return;
+  if (!email) {
+    cloud.authNotice = {
+      type: "error",
+      title: "Dopln e-mail",
+      text: "Nejdriv napis e-mail do prihlaseni a potom klikni na zapomenute heslo."
+    };
+    render();
+    document.querySelector('[data-auth-form="sign-in"] input[name="email"]')?.focus();
+    return;
+  }
+
+  const { error } = await cloud.client.auth.resetPasswordForEmail(email, {
+    redirectTo: authRedirectUrl()
+  });
+
+  if (error) {
+    cloud.authNotice = {
+      type: "error",
+      title: "Reset hesla se nepodaril",
+      text: friendlyAuthError(error)
+    };
+    render();
+    showToast(cloud.authNotice.text);
+    return;
+  }
+
+  cloud.pendingEmail = "";
+  cloud.authNotice = {
+    type: "success",
+    title: "Reset hesla odeslan",
+    text: `Na ${email} prisel odkaz pro nastaveni noveho hesla. Mrkni i do spamu nebo hromadne posty.`
+  };
+  render();
+  showToast("Reset hesla odeslan na e-mail.");
+}
+
+async function saveNewPassword(formElement) {
+  if (!cloud.client || !cloud.session) {
+    showToast("Reset link uz neni aktivni. Posli si reset hesla znovu.");
+    cloud.passwordRecovery = false;
+    render();
+    return;
+  }
+
+  const form = new FormData(formElement);
+  const password = String(form.get("password") || "");
+  if (password.length < 6) {
+    showToast("Heslo musi mit aspon 6 znaku.");
+    return;
+  }
+
+  const { error } = await cloud.client.auth.updateUser({ password });
+  if (error) {
+    cloud.authNotice = {
+      type: "error",
+      title: "Heslo se nepodarilo zmenit",
+      text: friendlyAuthError(error)
+    };
+    render();
+    showToast(cloud.authNotice.text);
+    return;
+  }
+
+  cloud.passwordRecovery = false;
+  cloud.authNotice = null;
+  state.activeView = "plan";
+  saveLocal();
+  await loadCloudData();
+  render();
+  showToast("Heslo zmeneno.");
 }
 
 async function saveProfileForm(formElement) {
@@ -2747,7 +2933,7 @@ function friendlyAuthError(error) {
     return "Ucet jeste neni overeny. Otevri potvrzovaci e-mail, klikni na odkaz a potom se prihlas znovu.";
   }
   if (message.includes("invalid login") || message.includes("invalid credentials")) {
-    return "E-mail nebo heslo nesedi. Zkontroluj udaje, pripadne nejdriv potvrd ucet v e-mailu.";
+    return "E-mail nebo heslo nesedi. Muze to byt spatne heslo, neovereny ucet, nebo jiny e-mail. Zkus zkontrolovat potvrzovaci e-mail, pripadne pouzij zapomenute heslo.";
   }
   if (message.includes("already registered") || message.includes("already been registered")) {
     return "Tenhle e-mail uz ucet ma. Zkus se prihlasit, nebo si nech poslat novy overovaci e-mail.";

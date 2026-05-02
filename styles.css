@@ -477,6 +477,23 @@ button.cloud-badge:hover {
   font-size: 1rem;
 }
 
+.text-btn {
+  width: max-content;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.text-btn:hover {
+  color: var(--teal);
+}
+
 .auth-notice {
   display: grid;
   gap: 6px;
@@ -562,6 +579,17 @@ button.cloud-badge:hover {
   padding: 14px;
 }
 
+.feed-summary {
+  display: grid;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.feed-summary::-webkit-details-marker {
+  display: none;
+}
+
 .feed-top,
 .feed-stats,
 .leader-row {
@@ -599,6 +627,87 @@ button.cloud-badge:hover {
   color: var(--muted);
   background: var(--surface-2);
   font-size: 0.8rem;
+}
+
+.feed-detail-toggle {
+  justify-self: start;
+  color: var(--teal);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.feed-card[open] .feed-detail-toggle {
+  color: var(--muted);
+}
+
+.feed-card[open] .feed-detail-toggle::after {
+  content: " otevreny";
+}
+
+.feed-detail {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.feed-exercise-detail {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field-bg);
+}
+
+.feed-exercise-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.feed-exercise-head span,
+.feed-exercise-head small,
+.feed-note {
+  color: var(--muted);
+}
+
+.feed-exercise-head strong {
+  display: block;
+}
+
+.feed-set-wrap {
+  overflow-x: auto;
+}
+
+.feed-set-table {
+  width: 100%;
+  min-width: 420px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.feed-set-table th,
+.feed-set-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.feed-set-table th {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.feed-set-table tr.done td {
+  background: var(--set-done);
+}
+
+.feed-note {
+  margin: 0;
+  font-size: 0.85rem;
 }
 
 .leader-row {
@@ -1510,6 +1619,7 @@ button.cloud-badge:hover {
   .section-row,
   .feed-top,
   .feed-stats,
+  .feed-exercise-head,
   .leader-row {
     align-items: flex-start;
     flex-direction: column;
