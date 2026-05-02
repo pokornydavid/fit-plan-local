@@ -1,5 +1,7 @@
 const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
+const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
+const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const DEFAULT_PHASE_WEEKS = 16;
 const DAY_LABELS = [
@@ -28,6 +30,9 @@ const MUSCLES = [
   "Full body"
 ];
 
+let activeStorageKey = STORAGE_KEY;
+let activePendingSyncKey = PENDING_SYNC_KEY;
+let activeUserId = null;
 let state = loadState();
 let toastTimer = 0;
 let cloudSyncTimer = 0;
@@ -104,12 +109,16 @@ async function initSupabase() {
 
     const { data } = await cloud.client.auth.getSession();
     cloud.session = data.session;
-    if (cloud.session) await ensureProfile();
+    if (cloud.session) {
+      activateUserStorage(cloud.session.user.id);
+      await ensureProfile();
+    }
 
     cloud.client.auth.onAuthStateChange(async (event, session) => {
       cloud.session = session;
       if (event === "PASSWORD_RECOVERY") cloud.passwordRecovery = true;
       if (session) {
+        activateUserStorage(session.user.id);
         if (!cloud.passwordRecovery) {
           cloud.authNotice = null;
           cloud.pendingEmail = "";
@@ -128,6 +137,7 @@ async function initSupabase() {
         cloud.authNotice = null;
         cloud.pendingEmail = "";
         cloud.passwordRecovery = false;
+        activateAnonymousStorage();
       }
       render();
     });
@@ -140,10 +150,9 @@ async function initSupabase() {
   }
 }
 
-function loadState() {
-  const fallback = createDefaultState();
+function loadState(storageKey = activeStorageKey, fallback = createDefaultState()) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return fallback;
     return normalizeState(JSON.parse(raw), fallback);
   } catch {
@@ -160,6 +169,24 @@ function createDefaultState() {
     weekStart,
     weeks: {
       [weekStart]: createSampleWeek()
+    },
+    nutrition: {
+      [weekStart]: createNutritionWeek()
+    },
+    nutritionPhase: createNutritionPhase(),
+    library: createDefaultLibrary()
+  };
+}
+
+function createAccountState(theme = "dark") {
+  const weekStart = toDateInput(getWeekStart(new Date()));
+  return {
+    theme,
+    activeView: "plan",
+    selectedDay: getDayIndex(new Date()),
+    weekStart,
+    weeks: {
+      [weekStart]: createBlankWeek()
     },
     nutrition: {
       [weekStart]: createNutritionWeek()
@@ -253,7 +280,7 @@ function save() {
 }
 
 function saveLocal() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  localStorage.setItem(activeStorageKey, JSON.stringify(state));
 }
 
 function createEmptyPendingSync() {
@@ -263,9 +290,9 @@ function createEmptyPendingSync() {
   };
 }
 
-function loadPendingSync() {
+function loadPendingSync(storageKey = activePendingSyncKey) {
   try {
-    const raw = localStorage.getItem(PENDING_SYNC_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return createEmptyPendingSync();
     const parsed = JSON.parse(raw);
     return {
@@ -278,7 +305,34 @@ function loadPendingSync() {
 }
 
 function savePendingSync() {
-  localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(pendingSync));
+  localStorage.setItem(activePendingSyncKey, JSON.stringify(pendingSync));
+}
+
+function userStorageKey(userId) {
+  return `${USER_STORAGE_PREFIX}${userId}`;
+}
+
+function userPendingSyncKey(userId) {
+  return `${USER_PENDING_SYNC_PREFIX}${userId}`;
+}
+
+function activateUserStorage(userId) {
+  if (!userId || activeUserId === userId) return;
+  activeUserId = userId;
+  activeStorageKey = userStorageKey(userId);
+  activePendingSyncKey = userPendingSyncKey(userId);
+  const theme = state?.theme === "light" ? "light" : "dark";
+  state = loadState(activeStorageKey, createAccountState(theme));
+  pendingSync = loadPendingSync(activePendingSyncKey);
+  saveLocal();
+}
+
+function activateAnonymousStorage() {
+  activeUserId = null;
+  activeStorageKey = STORAGE_KEY;
+  activePendingSyncKey = PENDING_SYNC_KEY;
+  state = loadState(activeStorageKey, createDefaultState());
+  pendingSync = loadPendingSync(activePendingSyncKey);
 }
 
 function workoutPendingKey(weekStart, dayIndex) {
@@ -573,7 +627,9 @@ function render() {
   const daySummary = summarizeDay(selected);
   const nutritionSummary = summarizeNutrition(nutrition);
   const lockedForAuth = cloud.configured && !cloud.session;
-  const content = lockedForAuth
+  const content = !cloud.ready
+    ? renderLoadingShell()
+    : lockedForAuth
     ? renderAuthShell()
     : cloud.passwordRecovery
       ? renderPasswordResetShell()
@@ -649,6 +705,20 @@ function renderCloudBadge() {
   }
   if (cloud.configured) return `<span class="cloud-badge auth">Login ready</span>`;
   return `<span class="cloud-badge local">Local</span>`;
+}
+
+function renderLoadingShell() {
+  return `
+    <main class="auth-shell">
+      <section class="auth-panel profile-panel">
+        <div>
+          <p class="eyebrow">Fit plan cloud</p>
+          <h2>Nacitam spravny ucet</h2>
+          <p class="auth-copy">Chvilku kontroluju prihlaseni a oddeluju data podle uctu.</p>
+        </div>
+      </section>
+    </main>
+  `;
 }
 
 function renderAuthShell() {
@@ -738,6 +808,13 @@ function renderProfileShell() {
           </label>
           <button class="btn primary" type="submit">Ulozit profil</button>
         </form>
+        <div class="auth-card profile-card danger-zone">
+          <div>
+            <h3>Vymazat data uctu</h3>
+            <p class="microcopy">Smaze jen tvoje workouty a nutrition data v cloudu i na tomhle zarizeni. Profil a prihlaseni zustanou.</p>
+          </div>
+          <button class="btn danger" data-action="reset-account-data">Vymazat moje data</button>
+        </div>
       </section>
     </main>
   `;
@@ -1510,6 +1587,11 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "reset-account-data") {
+    await resetAccountData();
+    return;
+  }
+
   if (action === "resend-confirmation") {
     await resendConfirmationEmail();
     return;
@@ -1985,6 +2067,38 @@ async function saveProfileForm(formElement) {
   cloud.profile = data;
   render();
   showToast("Profil ulozen.");
+}
+
+async function resetAccountData() {
+  if (!cloud.client || !cloud.session) {
+    showToast("Nejdriv se prihlas.");
+    return;
+  }
+  if (!confirm("Fakt vymazat tvoje workouty a nutrition data z tohoto uctu?")) return;
+  if (!confirm("Posledni kontrola: data se smazi z cloudu i z tohoto zarizeni.")) return;
+
+  const userId = cloud.session.user.id;
+  const [workoutResult, nutritionResult] = await Promise.all([
+    cloud.client.from("workout_days").delete().eq("user_id", userId),
+    cloud.client.from("nutrition_weeks").delete().eq("user_id", userId)
+  ]);
+
+  const error = workoutResult.error || nutritionResult.error;
+  if (error) {
+    console.warn(error);
+    showCloudError("Data se nepodarilo vymazat.", error);
+    return;
+  }
+
+  state = createAccountState(state.theme);
+  pendingSync = createEmptyPendingSync();
+  cloud.feed = [];
+  cloud.leaderboard = [];
+  saveLocal();
+  savePendingSync();
+  await loadSocialData();
+  render();
+  showToast("Ucet je vycisteny.");
 }
 
 function handleInput(event) {

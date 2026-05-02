@@ -527,6 +527,11 @@ button.cloud-badge:hover {
   max-width: 520px;
 }
 
+.danger-zone h3,
+.danger-zone p {
+  margin: 0;
+}
+
 .social-main {
   display: grid;
   gap: 14px;
