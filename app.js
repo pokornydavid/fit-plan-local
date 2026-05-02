@@ -180,12 +180,6 @@ function normalizeState(value, fallback = createDefaultState()) {
     name: String(item.name || "Cvik"),
     muscle: MUSCLES.includes(item.muscle) ? item.muscle : "Full body"
   }));
-  appendMissingLibraryItems(next.library, [
-    ["Standing calf raise", "Lytka"],
-    ["Dumbbell shrug", "Trapezy"],
-    ["Wrist curl", "Predlokti"],
-    ["Crunch", "Bricho"]
-  ]);
 
   Object.keys(next.weeks).forEach((key) => {
     next.weeks[key] = normalizeWeek(next.weeks[key]);
@@ -341,16 +335,6 @@ function createDefaultLibrary() {
 
 function libraryItem(name, muscle) {
   return { id: uid(), name, muscle };
-}
-
-function appendMissingLibraryItems(library, items) {
-  const existing = new Set(library.map((item) => item.name.toLowerCase()));
-  items.forEach(([name, muscle]) => {
-    if (!existing.has(name.toLowerCase())) {
-      library.push(libraryItem(name, muscle));
-      existing.add(name.toLowerCase());
-    }
-  });
 }
 
 function createSet(overrides = {}) {
@@ -1298,7 +1282,10 @@ function renderSidePanel(summary, daySummary, day) {
         </div>
       </div>
       <div class="side-section">
-        <h2 class="section-title">Knihovna</h2>
+        <div class="section-row">
+          <h2 class="section-title">Knihovna</h2>
+          <button class="btn compact" data-action="restore-default-library">Obnovit zaklad</button>
+        </div>
         <div class="mini-form">
           <input id="libraryName" class="input" placeholder="Cvik">
           <select id="libraryMuscle" class="select" aria-label="Partie cviku">
@@ -1307,7 +1294,7 @@ function renderSidePanel(summary, daySummary, day) {
           <button class="icon-btn primary" data-action="add-library-item" title="Pridat do knihovny" aria-label="Pridat do knihovny">+</button>
         </div>
         <div>
-          ${state.library.map(renderLibraryRow).join("")}
+          ${state.library.length ? state.library.map(renderLibraryRow).join("") : renderEmptyLibrary()}
         </div>
       </div>
       <div class="side-section">
@@ -1367,6 +1354,14 @@ function renderLibraryRow(item) {
       </div>
       <button class="icon-btn" data-action="quick-add-library" data-library-id="${item.id}" title="Pridat do dne" aria-label="Pridat do dne">+</button>
       <button class="icon-btn" data-action="remove-library-item" data-library-id="${item.id}" title="Smazat z knihovny" aria-label="Smazat z knihovny">x</button>
+    </div>
+  `;
+}
+
+function renderEmptyLibrary() {
+  return `
+    <div class="library-empty microcopy">
+      Knihovna je prazdna. Pridej vlastni cvik nebo obnov zakladni balicek.
     </div>
   `;
 }
@@ -1648,6 +1643,14 @@ async function handleClick(event) {
     state.library = state.library.filter((item) => item.id !== target.dataset.libraryId);
     saveLocal();
     render();
+    return;
+  }
+
+  if (action === "restore-default-library") {
+    const added = restoreDefaultLibraryItems();
+    saveLocal();
+    render();
+    showToast(added ? `Zakladni knihovna obnovena: ${added} cviku pridano.` : "Zakladni knihovna uz je kompletni.");
     return;
   }
 
@@ -2416,6 +2419,19 @@ function updateNutritionGoal(input) {
   nutrition.goals[field] = toNumber(input.value, 0);
 }
 
+function restoreDefaultLibraryItems() {
+  const existing = new Set(state.library.map((item) => item.name.trim().toLowerCase()).filter(Boolean));
+  let added = 0;
+  createDefaultLibrary().forEach((item) => {
+    const key = item.name.trim().toLowerCase();
+    if (existing.has(key)) return;
+    state.library.push(item);
+    existing.add(key);
+    added += 1;
+  });
+  return added;
+}
+
 function syncNutritionInputs(sourceInput) {
   const day = sourceInput.dataset.day;
   const field = sourceInput.dataset.nutrition;
@@ -2495,7 +2511,10 @@ function updateNutritionPhaseRow(input) {
 
 function addLibraryExercise(id) {
   const item = state.library.find((entry) => entry.id === id);
-  if (!item) return;
+  if (!item) {
+    showToast("Knihovna je prazdna. Pridej vlastni cvik nebo obnov zaklad.");
+    return;
+  }
   ensureWeek()[state.selectedDay].exercises.push(createExercise(item.name, item.muscle));
   save();
   render();

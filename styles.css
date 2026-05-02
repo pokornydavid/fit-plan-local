@@ -989,6 +989,12 @@ button.cloud-badge:hover {
   font-weight: 700;
 }
 
+.btn.compact {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+}
+
 .icon-btn {
   width: 40px;
   padding: 0;
@@ -1319,6 +1325,14 @@ button.cloud-badge:hover {
 .library-name span {
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.library-empty {
+  padding: 12px;
+  border: 1px dashed var(--empty-border);
+  border-radius: 8px;
+  color: var(--muted);
+  background: var(--field-bg);
 }
 
 .mini-form {
