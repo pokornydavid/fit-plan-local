@@ -2672,7 +2672,7 @@ async function saveDayToCloud(weekStart, dayIndex) {
     exercises: day.exercises
   };
 
-  const { error } = await cloud.client
+  const { data, error } = await cloud.client
     .from("workout_days")
     .upsert({
       user_id: cloud.session.user.id,
@@ -2687,9 +2687,12 @@ async function saveDayToCloud(weekStart, dayIndex) {
       completed_sets: summary.completed,
       total_sets: summary.totalSets,
       updated_at: new Date().toISOString()
-    }, { onConflict: "user_id,week_start,day_index" });
+    }, { onConflict: "user_id,week_start,day_index" })
+    .select("id,user_id,week_start,day_index,title,focus,visibility,payload,volume,completed_sets,total_sets,updated_at")
+    .single();
 
   if (error) throw error;
+  updateFeedCacheRow(data);
   clearPendingWorkoutSync(weekStart, dayIndex);
 }
 
@@ -2702,6 +2705,42 @@ async function deleteDayFromCloud(weekStart, dayIndex) {
     .eq("week_start", weekStart)
     .eq("day_index", Number(dayIndex));
   if (error) throw error;
+  removeFeedCacheRow(cloud.session.user.id, weekStart, dayIndex);
+}
+
+function updateFeedCacheRow(row) {
+  if (!row?.user_id) return;
+  const keyMatches = (item) => (
+    item.user_id === row.user_id &&
+    item.week_start === row.week_start &&
+    Number(item.day_index) === Number(row.day_index)
+  );
+  const existingIndex = cloud.feed.findIndex(keyMatches);
+  if (row.visibility !== "public" || toNumber(row.total_sets, 0) <= 0) {
+    if (existingIndex >= 0) cloud.feed.splice(existingIndex, 1);
+    return;
+  }
+
+  const nextRow = {
+    ...row,
+    profile: cloud.profile || cloud.feed[existingIndex]?.profile || null
+  };
+  if (existingIndex >= 0) {
+    cloud.feed[existingIndex] = nextRow;
+  } else {
+    cloud.feed.unshift(nextRow);
+  }
+  cloud.feed = cloud.feed
+    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+    .slice(0, 20);
+}
+
+function removeFeedCacheRow(userId, weekStart, dayIndex) {
+  cloud.feed = cloud.feed.filter((item) => !(
+    item.user_id === userId &&
+    item.week_start === weekStart &&
+    Number(item.day_index) === Number(dayIndex)
+  ));
 }
 
 function rowToDay(row) {
@@ -3090,6 +3129,9 @@ function showCloudError(prefix, error) {
 
 function friendlyAuthError(error) {
   const message = String(error?.message || "").toLowerCase();
+  if (message.includes("rate limit") || message.includes("too many") || message.includes("email rate")) {
+    return "Supabase ted nepusti dalsi potvrzovaci e-mail, protoze je prekroceny e-mail limit projektu. Zkus to za hodinu, nebo musi majitel appky zapnout vlastni SMTP pro registrace.";
+  }
   if (message.includes("email not confirmed") || message.includes("not confirmed")) {
     return "Ucet jeste neni overeny. Otevri potvrzovaci e-mail, klikni na odkaz a potom se prihlas znovu.";
   }
