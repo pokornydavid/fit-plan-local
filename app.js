@@ -834,19 +834,34 @@ function renderProfileShell() {
 }
 
 function renderFeedShell() {
+  const feedDate = getSelectedDate();
+  const isToday = toDateInput(feedDate) === toDateInput(new Date());
+  const heading = isToday
+    ? "Co se jelo dneska"
+    : `Co se jelo ${DAY_LABELS[state.selectedDay][1]} ${formatShortDate(feedDate)}`;
   return `
     <main class="social-shell">
       <section class="social-main">
         <div class="social-head">
           <div>
             <p class="eyebrow">Community feed</p>
-            <h2>Co se jelo dneska</h2>
+            <h2>${escapeHtml(heading)}</h2>
+            <p class="auth-copy">Public treninky jen pro vybrany den. Sipkami muzes koukat zpet i dopredu.</p>
           </div>
-          <button class="btn" data-action="refresh-social">Refresh</button>
+          <div class="feed-day-controls" aria-label="Vyber dne feedu">
+            <button class="icon-btn" data-action="prev-feed-day" title="Predchozi den" aria-label="Predchozi den">&lt;</button>
+            <div class="feed-day-label">
+              <strong>${DAY_LABELS[state.selectedDay][1]}</strong>
+              <span>${formatShortDate(feedDate)}</span>
+            </div>
+            <button class="icon-btn" data-action="next-feed-day" title="Dalsi den" aria-label="Dalsi den">&gt;</button>
+            <button class="btn" data-action="today">Dnes</button>
+            <button class="btn" data-action="refresh-social">Refresh</button>
+          </div>
         </div>
         ${renderCloudSetupNotice()}
         <div class="feed-list">
-          ${cloud.feed.length ? cloud.feed.map(renderFeedCard).join("") : renderSocialEmpty("Zatim tu neni zadny public trening.")}
+          ${cloud.feed.length ? cloud.feed.map(renderFeedCard).join("") : renderSocialEmpty("Pro tenhle den tu zatim neni zadny public trening.")}
         </div>
       </section>
     </main>
@@ -1586,11 +1601,17 @@ async function handleClick(event) {
   if (action === "set-view") {
     const nextView = target.dataset.view;
     if (!["plan", "nutrition", "feed", "leaderboard", "profile"].includes(nextView)) return;
+    if (nextView === "feed" && state.activeView !== "feed") {
+      setSelectedDate(new Date());
+      ensureWeek();
+      ensureNutritionWeek();
+    }
     state.activeView = nextView;
     saveLocal();
     render();
     await flushPendingSync();
     if (nextView === "nutrition") await loadCloudNutritionWeek();
+    if (nextView === "feed") await loadCloudWeek();
     if (nextView === "feed" || nextView === "leaderboard") await loadSocialData();
     if (nextView === "nutrition") saveLocal();
     render();
@@ -1629,6 +1650,21 @@ async function handleClick(event) {
     await loadSocialData();
     render();
     showToast("Data obnovena.");
+    return;
+  }
+
+  if (action === "prev-feed-day" || action === "next-feed-day") {
+    const shift = action === "prev-feed-day" ? -1 : 1;
+    setSelectedDate(addDays(getSelectedDate(), shift));
+    ensureWeek();
+    ensureNutritionWeek();
+    saveLocal();
+    render();
+    await flushPendingSync();
+    await loadCloudWeek();
+    await loadFeed();
+    saveLocal();
+    render();
     return;
   }
 
@@ -2541,6 +2577,8 @@ async function loadFeed() {
     .from("workout_days")
     .select("id,user_id,week_start,day_index,title,focus,payload,volume,completed_sets,total_sets,updated_at")
     .eq("visibility", "public")
+    .eq("week_start", state.weekStart)
+    .eq("day_index", state.selectedDay)
     .gt("total_sets", 0)
     .order("updated_at", { ascending: false })
     .limit(20);
@@ -2716,7 +2754,7 @@ function updateFeedCacheRow(row) {
     Number(item.day_index) === Number(row.day_index)
   );
   const existingIndex = cloud.feed.findIndex(keyMatches);
-  if (row.visibility !== "public" || toNumber(row.total_sets, 0) <= 0) {
+  if (row.visibility !== "public" || toNumber(row.total_sets, 0) <= 0 || !isSelectedFeedRow(row)) {
     if (existingIndex >= 0) cloud.feed.splice(existingIndex, 1);
     return;
   }
@@ -2733,6 +2771,10 @@ function updateFeedCacheRow(row) {
   cloud.feed = cloud.feed
     .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
     .slice(0, 20);
+}
+
+function isSelectedFeedRow(row) {
+  return row.week_start === state.weekStart && Number(row.day_index) === state.selectedDay;
 }
 
 function removeFeedCacheRow(userId, weekStart, dayIndex) {
@@ -3194,6 +3236,16 @@ function getWeekStart(date) {
 
 function getDayIndex(date) {
   return (date.getDay() + 6) % 7;
+}
+
+function getSelectedDate() {
+  return addDays(parseDate(state.weekStart), state.selectedDay);
+}
+
+function setSelectedDate(date) {
+  const weekStart = getWeekStart(date);
+  state.weekStart = toDateInput(weekStart);
+  state.selectedDay = getDayIndex(date);
 }
 
 function parseDate(value) {

@@ -547,6 +547,33 @@ button.cloud-badge:hover {
   padding-bottom: 16px;
 }
 
+.feed-day-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.feed-day-label {
+  min-width: 92px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field-bg);
+  text-align: center;
+}
+
+.feed-day-label strong,
+.feed-day-label span {
+  display: block;
+}
+
+.feed-day-label span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .setup-notice {
   display: grid;
   gap: 4px;
@@ -1635,6 +1662,11 @@ button.cloud-badge:hover {
   .leader-row {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .feed-day-controls {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .nutrition-actions {
