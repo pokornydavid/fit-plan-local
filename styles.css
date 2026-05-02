@@ -1149,6 +1149,12 @@ button.cloud-badge:hover {
   font-weight: 800;
 }
 
+.icon-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  filter: none;
+}
+
 .btn.primary,
 .icon-btn.primary {
   color: var(--teal-ink);
@@ -1237,6 +1243,24 @@ button.cloud-badge:hover {
   padding: 12px;
   border-bottom: 1px solid var(--line);
   background: var(--surface-2);
+}
+
+.exercise-order {
+  display: grid;
+  gap: 6px;
+  align-self: end;
+}
+
+.move-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.mini-move {
+  width: 100%;
+  min-height: 28px;
+  font-size: 0.78rem;
 }
 
 .drag-handle {

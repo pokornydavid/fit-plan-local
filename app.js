@@ -65,6 +65,7 @@ app.addEventListener("click", handleClick);
 app.addEventListener("input", handleInput);
 app.addEventListener("change", handleChange);
 app.addEventListener("submit", handleSubmit);
+app.addEventListener("focusout", handleFocusOut);
 app.addEventListener("pointerdown", handlePointerDown);
 window.addEventListener("pointermove", handlePointerMove);
 window.addEventListener("pointerup", handlePointerUp);
@@ -374,9 +375,30 @@ function clearPendingWorkoutSync(weekStart, dayIndex) {
   savePendingSync();
 }
 
+function clearPendingWorkoutSyncIfCurrent(weekStart, dayIndex, expectedUpdatedAt) {
+  if (!expectedUpdatedAt) {
+    clearPendingWorkoutSync(weekStart, dayIndex);
+    return;
+  }
+  const key = workoutPendingKey(weekStart, dayIndex);
+  if (pendingSync.workouts[key]?.updatedAt === expectedUpdatedAt) {
+    clearPendingWorkoutSync(weekStart, dayIndex);
+  }
+}
+
 function clearPendingNutritionSync(weekStart) {
   delete pendingSync.nutrition[weekStart];
   savePendingSync();
+}
+
+function clearPendingNutritionSyncIfCurrent(weekStart, expectedUpdatedAt) {
+  if (!expectedUpdatedAt) {
+    clearPendingNutritionSync(weekStart);
+    return;
+  }
+  if (pendingSync.nutrition[weekStart]?.updatedAt === expectedUpdatedAt) {
+    clearPendingNutritionSync(weekStart);
+  }
 }
 
 function hasPendingWorkoutsForWeek(weekStart) {
@@ -385,6 +407,10 @@ function hasPendingWorkoutsForWeek(weekStart) {
 
 function hasPendingNutritionForWeek(weekStart) {
   return Boolean(pendingSync.nutrition[weekStart]);
+}
+
+function hasAnyPendingSync() {
+  return Boolean(Object.keys(pendingSync.workouts).length || Object.keys(pendingSync.nutrition).length);
 }
 
 function createDefaultLibrary() {
@@ -1366,7 +1392,7 @@ function renderDayWorkspace(day, summary) {
           <button class="btn primary" data-action="add-custom-exercise">Pridat</button>
         </div>
         <div class="exercise-list" data-exercise-list>
-          ${day.exercises.length ? day.exercises.map((exercise, index) => renderExercise(exercise, index)).join("") : renderEmptyDay(summary)}
+          ${day.exercises.length ? day.exercises.map((exercise, index) => renderExercise(exercise, index, day.exercises.length)).join("") : renderEmptyDay(summary)}
         </div>
       </section>
     </main>
@@ -1405,14 +1431,20 @@ function renderEmptyDay() {
   `;
 }
 
-function renderExercise(exercise, index) {
+function renderExercise(exercise, index, totalExercises) {
   return `
     <article class="exercise-card" data-exercise-id="${exercise.id}" data-exercise-index="${index}">
       <div class="exercise-head">
-        <button class="drag-handle" type="button" data-drag-exercise-id="${exercise.id}" title="Pretahnout cvik" aria-label="Pretahnout cvik">
-          <span>Cvik</span>
-          <strong>${index + 1}</strong>
-        </button>
+        <div class="exercise-order">
+          <button class="drag-handle" type="button" data-drag-exercise-id="${exercise.id}" title="Pretahnout cvik" aria-label="Pretahnout cvik">
+            <span>Cvik</span>
+            <strong>${index + 1}</strong>
+          </button>
+          <div class="move-controls" aria-label="Posun cviku">
+            <button class="icon-btn mini-move" data-action="move-exercise-up" data-exercise-id="${exercise.id}" title="Posunout nahoru" aria-label="Posunout cvik nahoru" ${index === 0 ? "disabled" : ""}>^</button>
+            <button class="icon-btn mini-move" data-action="move-exercise-down" data-exercise-id="${exercise.id}" title="Posunout dolu" aria-label="Posunout cvik dolu" ${index >= totalExercises - 1 ? "disabled" : ""}>v</button>
+          </div>
+        </div>
         <label class="field">
           <span>Cvik</span>
           <input class="input" data-field="exercise-name" data-exercise-id="${exercise.id}" value="${escapeAttr(exercise.name)}">
@@ -1826,6 +1858,16 @@ async function handleClick(event) {
     if (index >= 0) day.exercises.splice(index, 1);
     save();
     render();
+    return;
+  }
+
+  if (action === "move-exercise-up" || action === "move-exercise-down") {
+    const shift = action === "move-exercise-up" ? -1 : 1;
+    if (moveExerciseByOffset(target.dataset.exerciseId, shift)) {
+      save();
+      render();
+      showToast("Poradi cviku upraveno.");
+    }
     return;
   }
 
@@ -2325,15 +2367,21 @@ function handleChange(event) {
   if (shouldRender) render();
 }
 
+function handleFocusOut(event) {
+  if (!event.target?.dataset?.field) return;
+  saveLocal();
+  runPendingSyncNow("Cloud ulozeni se nepovedlo.");
+}
+
 function handlePageHide() {
   saveLocal();
-  flushPendingSync();
+  runPendingSyncNow("Neulozene zmeny se nepodarilo dosynchronizovat.");
 }
 
 function handleVisibilityChange() {
   if (document.visibilityState !== "hidden") return;
   saveLocal();
-  flushPendingSync();
+  runPendingSyncNow("Neulozene zmeny se nepodarilo dosynchronizovat.");
 }
 
 function handlePointerDown(event) {
@@ -2428,6 +2476,16 @@ function moveExerciseInSelectedDay(exerciseId, targetId, insertAfter) {
   if (insertAfter) insertIndex += 1;
 
   exercises.splice(insertIndex, 0, moved);
+  return true;
+}
+
+function moveExerciseByOffset(exerciseId, offset) {
+  const exercises = ensureWeek()[state.selectedDay].exercises;
+  const fromIndex = exercises.findIndex((exercise) => exercise.id === exerciseId);
+  const toIndex = fromIndex + offset;
+  if (fromIndex < 0 || toIndex < 0 || toIndex >= exercises.length) return false;
+  const [moved] = exercises.splice(fromIndex, 1);
+  exercises.splice(toIndex, 0, moved);
   return true;
 }
 
@@ -2645,10 +2703,7 @@ function scheduleCloudSync() {
   if (!cloud.client || !cloud.session) return;
   clearTimeout(cloudSyncTimer);
   cloudSyncTimer = setTimeout(() => {
-    saveSelectedDayToCloud().catch((error) => {
-      console.warn(error);
-      showCloudError("Cloud ulozeni se nepovedlo.", error);
-    });
+    runPendingSyncNow("Cloud ulozeni se nepovedlo.");
   }, 250);
 }
 
@@ -2656,11 +2711,20 @@ function scheduleNutritionSync() {
   if (!cloud.client || !cloud.session || state.activeView !== "nutrition") return;
   clearTimeout(nutritionSyncTimer);
   nutritionSyncTimer = setTimeout(() => {
-    saveNutritionToCloud().catch((error) => {
-      console.warn(error);
-      showCloudError("Nutrition cloud ulozeni se nepovedlo.", error);
-    });
+    runPendingSyncNow("Nutrition cloud ulozeni se nepovedlo.");
   }, 250);
+}
+
+function runPendingSyncNow(errorPrefix) {
+  clearTimeout(cloudSyncTimer);
+  clearTimeout(nutritionSyncTimer);
+  cloudSyncTimer = 0;
+  nutritionSyncTimer = 0;
+  if (!cloud.client || !cloud.session || !hasAnyPendingSync()) return;
+  flushPendingSync().catch((error) => {
+    console.warn(error);
+    showCloudError(errorPrefix, error);
+  });
 }
 
 async function flushPendingSync() {
@@ -2671,18 +2735,21 @@ async function flushPendingSync() {
   if (!workoutItems.length && !nutritionItems.length) return;
 
   flushingPendingSync = true;
+  let hadError = false;
   try {
     for (const item of workoutItems) {
-      await saveDayToCloud(item.weekStart, Number(item.dayIndex));
+      await saveDayToCloud(item.weekStart, Number(item.dayIndex), item.updatedAt);
     }
     for (const item of nutritionItems) {
-      await saveNutritionWeekToCloud(item.weekStart);
+      await saveNutritionWeekToCloud(item.weekStart, item.updatedAt);
     }
   } catch (error) {
+    hadError = true;
     console.warn(error);
     showCloudError("Neulozene zmeny se nepodarilo dosynchronizovat.", error);
   } finally {
     flushingPendingSync = false;
+    if (!hadError && hasAnyPendingSync()) scheduleCloudSync();
   }
 }
 
@@ -2692,17 +2759,17 @@ async function saveSelectedDayToCloud() {
   if (state.activeView !== "plan") await loadSocialData();
 }
 
-async function saveDayToCloud(weekStart, dayIndex) {
+async function saveDayToCloud(weekStart, dayIndex, expectedPendingUpdatedAt = null) {
   if (!cloud.client || !cloud.session) return;
   const day = state.weeks[weekStart]?.[dayIndex];
   if (!day) {
-    clearPendingWorkoutSync(weekStart, dayIndex);
+    clearPendingWorkoutSyncIfCurrent(weekStart, dayIndex, expectedPendingUpdatedAt);
     return;
   }
   const summary = summarizeDay(day);
   if (summary.totalSets <= 0) {
     await deleteDayFromCloud(weekStart, dayIndex);
-    clearPendingWorkoutSync(weekStart, dayIndex);
+    clearPendingWorkoutSyncIfCurrent(weekStart, dayIndex, expectedPendingUpdatedAt);
     return;
   }
 
@@ -2731,7 +2798,7 @@ async function saveDayToCloud(weekStart, dayIndex) {
 
   if (error) throw error;
   updateFeedCacheRow(data);
-  clearPendingWorkoutSync(weekStart, dayIndex);
+  clearPendingWorkoutSyncIfCurrent(weekStart, dayIndex, expectedPendingUpdatedAt);
 }
 
 async function deleteDayFromCloud(weekStart, dayIndex) {
@@ -2801,11 +2868,11 @@ async function saveNutritionToCloud() {
   await saveNutritionWeekToCloud(state.weekStart);
 }
 
-async function saveNutritionWeekToCloud(weekStart) {
+async function saveNutritionWeekToCloud(weekStart, expectedPendingUpdatedAt = null) {
   if (!cloud.client || !cloud.session) return;
   const nutrition = state.nutrition[weekStart];
   if (!nutrition) {
-    clearPendingNutritionSync(weekStart);
+    clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
     return;
   }
   const summary = summarizeNutrition(nutrition);
@@ -2827,7 +2894,7 @@ async function saveNutritionWeekToCloud(weekStart) {
     }, { onConflict: "user_id,week_start" });
 
   if (error) throw error;
-  clearPendingNutritionSync(weekStart);
+  clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
 }
 
 function updateNutritionDay(input) {
