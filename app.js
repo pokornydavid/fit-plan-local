@@ -3061,7 +3061,7 @@ async function loadCloudNutritionWeek() {
     await loadCloudPhasePhotos();
     return;
   }
-  if (data.payload?.phase && !hasNutritionPhaseData(state.nutritionPhase)) {
+  if (data.payload?.phase) {
     state.nutritionPhase = mergePhasePhotos(normalizeNutritionPhase(data.payload.phase), state.nutritionPhase);
   }
   state.nutrition[state.weekStart] = normalizeNutritionWeek(data.payload);
