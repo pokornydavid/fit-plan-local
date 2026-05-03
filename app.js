@@ -1990,15 +1990,6 @@ async function handleClick(event) {
     const previousPhotos = normalizePhasePhotos(row.photos);
     const removedIndex = previousPhotos.findIndex((photo) => photo.id === photoId);
     const removedPhoto = previousPhotos[removedIndex];
-    if (removedPhoto?.storagePath) {
-      try {
-        await deleteCloudPhasePhoto(removedPhoto);
-      } catch (error) {
-        console.warn(error);
-        showCloudError("Fotku se nepodarilo smazat z cloudu.", error);
-        return;
-      }
-    }
     row.photos = previousPhotos.filter((photo) => photo.id !== photoId);
     openPhasePhotoRows.add(rowId);
     if (phasePhotoViewer?.rowId === rowId && phasePhotoViewer?.photoId === photoId) {
@@ -2012,7 +2003,15 @@ async function handleClick(event) {
     }
     saveLocal();
     render();
-    showToast(removedPhoto?.storagePath ? "Fotka smazana z cloudu." : "Fotka smazana jen lokalne.");
+    showToast(removedPhoto?.storagePath ? "Fotka smazana, cistim cloud..." : "Fotka smazana jen lokalne.");
+    if (removedPhoto?.storagePath) {
+      deleteCloudPhasePhoto(removedPhoto)
+        .then(() => showToast("Fotka smazana z cloudu."))
+        .catch((error) => {
+          console.warn(error);
+          showCloudError("Fotka zmizela z appky, ale cloud smazani se nepovedlo.", error);
+        });
+    }
     return;
   }
 
@@ -2793,19 +2792,45 @@ async function handlePhasePhotoImport(event) {
 
   try {
     const syncToCloud = Boolean(cloud.client && cloud.session);
-    if (syncToCloud) await saveNutritionToCloud();
-    const photos = [];
+    showToast(syncToCloud ? "Pripravuju fotky a nahravam do cloudu..." : "Pripravuju fotky...");
+    const preparedPhotos = [];
+    const localPhotos = [];
     for (const file of imageFiles) {
-      const photo = syncToCloud
-        ? await uploadCloudPhasePhoto(row, file)
-        : await createCompressedPhasePhoto(file);
-      photos.push(photo);
+      const prepared = await prepareCompressedPhasePhoto(file);
+      preparedPhotos.push(prepared);
+      localPhotos.push(localPhasePhotoFromPrepared(prepared));
     }
-    row.photos = [...normalizePhasePhotos(row.photos), ...photos].slice(-PHASE_PHOTO_LIMIT);
+    row.photos = [...normalizePhasePhotos(row.photos), ...localPhotos].slice(-PHASE_PHOTO_LIMIT);
     openPhasePhotoRows.add(rowId);
     saveLocal();
     render();
-    showToast(formatPhotoSaveMessage(photos.length, syncToCloud));
+
+    if (!syncToCloud) {
+      showToast(formatPhotoSaveMessage(localPhotos.length, false));
+      return;
+    }
+
+    await saveNutritionToCloud();
+    const uploadedPhotos = [];
+    const uploadedPreviewIds = [];
+    try {
+      for (let index = 0; index < preparedPhotos.length; index += 1) {
+        uploadedPhotos.push(await uploadPreparedCloudPhasePhoto(row, preparedPhotos[index]));
+        uploadedPreviewIds.push(localPhotos[index].id);
+      }
+      replacePhasePhotoPreviews(rowId, uploadedPreviewIds, uploadedPhotos);
+      saveLocal();
+      render();
+      showToast(formatPhotoSaveMessage(uploadedPhotos.length, true));
+    } catch (error) {
+      if (uploadedPhotos.length) {
+        replacePhasePhotoPreviews(rowId, uploadedPreviewIds, uploadedPhotos);
+        saveLocal();
+        render();
+      }
+      console.warn(error);
+      showCloudError("Nektere fotky zustaly jen lokalne.", error);
+    }
   } catch (error) {
     console.warn(error);
     showCloudError("Fotku se nepodarilo ulozit.", error);
@@ -2821,6 +2846,10 @@ function formatPhotoSaveMessage(count, synced) {
 
 async function createCompressedPhasePhoto(file) {
   const prepared = await prepareCompressedPhasePhoto(file);
+  return localPhasePhotoFromPrepared(prepared);
+}
+
+function localPhasePhotoFromPrepared(prepared) {
   return {
     id: prepared.id,
     name: prepared.name,
@@ -2837,6 +2866,11 @@ async function createCompressedPhasePhoto(file) {
 async function uploadCloudPhasePhoto(row, file) {
   if (!cloud.client || !cloud.session) throw new Error("Nejdriv se prihlas.");
   const prepared = await prepareCompressedPhasePhoto(file);
+  return uploadPreparedCloudPhasePhoto(row, prepared);
+}
+
+async function uploadPreparedCloudPhasePhoto(row, prepared) {
+  if (!cloud.client || !cloud.session) throw new Error("Nejdriv se prihlas.");
   const objectId = uid();
   const storagePath = `${cloud.session.user.id}/${row.id}/${Date.now()}-${objectId}.jpg`;
   const bucket = cloud.client.storage.from(PHASE_PHOTO_BUCKET);
@@ -2873,14 +2907,19 @@ async function uploadCloudPhasePhoto(row, file) {
   return cloudPhasePhotoFromRow(data, signed?.signedUrl || "");
 }
 
+function replacePhasePhotoPreviews(rowId, previewIds, uploadedPhotos) {
+  const row = findNutritionPhaseRow(rowId);
+  if (!row) return;
+  const previewIdSet = new Set(previewIds);
+  row.photos = [
+    ...normalizePhasePhotos(row.photos).filter((photo) => !previewIdSet.has(photo.id)),
+    ...uploadedPhotos
+  ].slice(-PHASE_PHOTO_LIMIT);
+  openPhasePhotoRows.add(rowId);
+}
+
 async function deleteCloudPhasePhoto(photo) {
   if (!cloud.client || !cloud.session || !photo.storagePath) return;
-  const storageResult = await cloud.client
-    .storage
-    .from(PHASE_PHOTO_BUCKET)
-    .remove([photo.storagePath]);
-  if (storageResult.error) throw storageResult.error;
-
   let query = cloud.client
     .from("progress_photos")
     .delete()
@@ -2892,6 +2931,12 @@ async function deleteCloudPhasePhoto(photo) {
   }
   const { error } = await query;
   if (error) throw error;
+
+  const storageResult = await cloud.client
+    .storage
+    .from(PHASE_PHOTO_BUCKET)
+    .remove([photo.storagePath]);
+  if (storageResult.error) console.warn(storageResult.error);
 }
 
 async function deleteAllCloudPhasePhotos() {
