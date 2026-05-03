@@ -41,6 +41,7 @@ let nutritionSyncTimer = 0;
 let exerciseDrag = null;
 let pendingSync = loadPendingSync();
 let flushingPendingSync = false;
+let feedLoadSeq = 0;
 let cloud = {
   ready: false,
   configured: false,
@@ -865,6 +866,7 @@ function renderFeedShell() {
   const heading = isToday
     ? "Co se jelo dneska"
     : `Co se jelo ${DAY_LABELS[state.selectedDay][1]} ${formatShortDate(feedDate)}`;
+  const feedRows = getSelectedFeedRows();
   return `
     <main class="social-shell">
       <section class="social-main">
@@ -887,7 +889,7 @@ function renderFeedShell() {
         </div>
         ${renderCloudSetupNotice()}
         <div class="feed-list">
-          ${cloud.feed.length ? cloud.feed.map(renderFeedCard).join("") : renderSocialEmpty("Pro tenhle den tu zatim neni zadny public trening.")}
+          ${feedRows.length ? feedRows.map(renderFeedCard).join("") : renderSocialEmpty("Pro tenhle den tu zatim neni zadny public trening.")}
         </div>
       </section>
     </main>
@@ -1637,6 +1639,7 @@ async function handleClick(event) {
       setSelectedDate(new Date());
       ensureWeek();
       ensureNutritionWeek();
+      cloud.feed = cloud.feed.filter(isSelectedFeedRow);
     }
     state.activeView = nextView;
     saveLocal();
@@ -1690,6 +1693,7 @@ async function handleClick(event) {
     setSelectedDate(addDays(getSelectedDate(), shift));
     ensureWeek();
     ensureNutritionWeek();
+    cloud.feed = cloud.feed.filter(isSelectedFeedRow);
     saveLocal();
     render();
     await flushPendingSync();
@@ -1751,6 +1755,7 @@ async function handleClick(event) {
     state.selectedDay = getDayIndex(today);
     ensureWeek();
     ensureNutritionWeek();
+    cloud.feed = cloud.feed.filter(isSelectedFeedRow);
     saveLocal();
     render();
     await flushPendingSync();
@@ -2631,21 +2636,28 @@ async function loadSocialData() {
 }
 
 async function loadFeed() {
+  const requestId = ++feedLoadSeq;
+  const weekStart = state.weekStart;
+  const dayIndex = state.selectedDay;
+  cloud.feed = cloud.feed.filter((row) => isFeedRowFor(row, weekStart, dayIndex));
   const { data, error } = await cloud.client
     .from("workout_days")
     .select("id,user_id,week_start,day_index,title,focus,payload,volume,completed_sets,total_sets,updated_at")
     .eq("visibility", "public")
-    .eq("week_start", state.weekStart)
-    .eq("day_index", state.selectedDay)
+    .eq("week_start", weekStart)
+    .eq("day_index", dayIndex)
     .gt("total_sets", 0)
     .order("updated_at", { ascending: false })
     .limit(20);
 
+  if (requestId !== feedLoadSeq || weekStart !== state.weekStart || dayIndex !== state.selectedDay) return;
   if (error) {
     cloud.feed = [];
     return;
   }
-  cloud.feed = await attachProfiles(data || []);
+  const rows = await attachProfiles((data || []).filter((row) => isFeedRowFor(row, weekStart, dayIndex)));
+  if (requestId !== feedLoadSeq || weekStart !== state.weekStart || dayIndex !== state.selectedDay) return;
+  cloud.feed = rows;
 }
 
 async function loadLeaderboard() {
@@ -2840,8 +2852,56 @@ function updateFeedCacheRow(row) {
     .slice(0, 20);
 }
 
+function getSelectedFeedRows() {
+  const localRow = createLocalSelectedFeedRow();
+  const rows = cloud.feed.filter(isSelectedFeedRow);
+  if (!localRow) return rows;
+  return [
+    localRow,
+    ...rows.filter((row) => !sameFeedIdentity(row, localRow))
+  ].sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+}
+
+function createLocalSelectedFeedRow() {
+  if (!cloud.session) return null;
+  const day = state.weeks[state.weekStart]?.[state.selectedDay];
+  if (!day || normalizeVisibility(day.visibility) !== "public") return null;
+  const summary = summarizeDay(day);
+  if (summary.totalSets <= 0) return null;
+  const existing = cloud.feed.find((row) => (
+    row.user_id === cloud.session.user.id &&
+    row.week_start === state.weekStart &&
+    Number(row.day_index) === state.selectedDay
+  ));
+  const pendingKey = workoutPendingKey(state.weekStart, state.selectedDay);
+  return {
+    id: existing?.id || `local-${state.weekStart}-${state.selectedDay}`,
+    user_id: cloud.session.user.id,
+    week_start: state.weekStart,
+    day_index: state.selectedDay,
+    title: day.title || "",
+    focus: day.focus || "",
+    payload: { exercises: day.exercises },
+    volume: summary.volume,
+    completed_sets: summary.completed,
+    total_sets: summary.totalSets,
+    updated_at: pendingSync.workouts[pendingKey]?.updatedAt || existing?.updated_at || new Date().toISOString(),
+    profile: cloud.profile || existing?.profile || null
+  };
+}
+
+function sameFeedIdentity(a, b) {
+  return a.user_id === b.user_id &&
+    a.week_start === b.week_start &&
+    Number(a.day_index) === Number(b.day_index);
+}
+
 function isSelectedFeedRow(row) {
-  return row.week_start === state.weekStart && Number(row.day_index) === state.selectedDay;
+  return isFeedRowFor(row, state.weekStart, state.selectedDay);
+}
+
+function isFeedRowFor(row, weekStart, dayIndex) {
+  return row.week_start === weekStart && Number(row.day_index) === Number(dayIndex);
 }
 
 function removeFeedCacheRow(userId, weekStart, dayIndex) {
