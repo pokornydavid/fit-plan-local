@@ -91,6 +91,11 @@ body.dragging-exercise {
   user-select: none;
 }
 
+body.dragging-photo {
+  cursor: grabbing;
+  user-select: none;
+}
+
 button,
 input,
 select,
@@ -998,6 +1003,137 @@ button.cloud-badge:hover {
   font-size: 0.78rem;
 }
 
+.phase-compare {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--field-bg) 78%, var(--surface));
+}
+
+.phase-compare.empty {
+  grid-template-columns: 1fr;
+}
+
+.phase-compare-head,
+.phase-compare-slots,
+.compare-photo-head,
+.compare-overlay-legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.phase-compare-head strong,
+.phase-compare.empty strong {
+  display: block;
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.phase-compare-mode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.phase-compare-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(150px, 0.7fr);
+  gap: 10px;
+}
+
+.phase-compare-slots {
+  justify-content: center;
+}
+
+.phase-compare-slots strong {
+  min-width: 120px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.phase-compare-stage.side {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.phase-compare-stage.overlay {
+  display: grid;
+  gap: 10px;
+}
+
+.compare-photo-panel,
+.compare-overlay {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--control);
+  overflow: hidden;
+}
+
+.compare-photo-head {
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.compare-photo-head span,
+.compare-overlay-legend span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.compare-photo-head strong {
+  color: var(--ink);
+  font-size: 0.86rem;
+}
+
+.compare-photo-panel img {
+  width: 100%;
+  max-height: 520px;
+  object-fit: contain;
+  display: block;
+  background: var(--field-bg);
+}
+
+.compare-photo-empty {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.compare-overlay {
+  position: relative;
+  width: min(620px, 100%);
+  justify-self: center;
+  background: var(--field-bg);
+}
+
+.compare-overlay img {
+  width: 100%;
+  max-height: 620px;
+  object-fit: contain;
+  display: block;
+}
+
+.compare-overlay .overlay-top {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  opacity: var(--overlay);
+}
+
+.compare-overlay-legend {
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
 .phase-list {
   display: grid;
   gap: 8px;
@@ -1091,13 +1227,14 @@ button.cloud-badge:hover {
 
 .phase-photo-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 52px);
+  grid-template-columns: repeat(auto-fill, minmax(68px, 78px));
   justify-content: start;
   gap: 6px;
   padding: 0 8px 8px;
 }
 
 .phase-photo-card {
+  position: relative;
   display: grid;
   gap: 4px;
   margin: 0;
@@ -1105,6 +1242,67 @@ button.cloud-badge:hover {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--control);
+  transition: border-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease, transform 140ms ease;
+}
+
+.phase-photo-card.photo-dragging {
+  opacity: 0.72;
+  border-color: var(--teal);
+  transform: scale(0.98);
+}
+
+.phase-photo-card.photo-drop-before {
+  box-shadow: inset 3px 0 0 var(--teal);
+}
+
+.phase-photo-card.photo-drop-after {
+  box-shadow: inset -3px 0 0 var(--teal);
+}
+
+.phase-photo-order {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 3px;
+}
+
+.photo-drag-handle {
+  min-width: 24px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(45, 212, 191, 0.38);
+  border-radius: 5px;
+  color: var(--teal);
+  background: linear-gradient(180deg, var(--field-bg-soft), var(--field-bg));
+  cursor: grab;
+  touch-action: none;
+}
+
+.photo-drag-handle span {
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.photo-drag-handle:active {
+  cursor: grabbing;
+}
+
+.photo-move-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+}
+
+.photo-mini-move {
+  width: 18px;
+  min-height: 18px;
+  border-radius: 4px;
+  font-size: 0.58rem;
+  line-height: 1;
 }
 
 .phase-photo-thumb {
@@ -1939,8 +2137,29 @@ button.cloud-badge:hover {
 
   .phase-settings,
   .phase-summary,
+  .phase-compare-controls,
+  .phase-compare-stage.side,
   .phase-row {
     grid-template-columns: 1fr;
+  }
+
+  .phase-compare {
+    padding: 12px;
+  }
+
+  .phase-compare-head,
+  .phase-compare-mode {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .phase-compare-mode .btn {
+    width: 100%;
+  }
+
+  .compare-photo-panel img,
+  .compare-overlay img {
+    max-height: 360px;
   }
 
   .phase-row {
@@ -1960,7 +2179,7 @@ button.cloud-badge:hover {
   }
 
   .phase-photo-grid {
-    grid-template-columns: repeat(6, 44px);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .photo-viewer {

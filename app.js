@@ -43,11 +43,19 @@ let toastTimer = 0;
 let cloudSyncTimer = 0;
 let nutritionSyncTimer = 0;
 let exerciseDrag = null;
+let phasePhotoDrag = null;
 let pendingSync = loadPendingSync();
 let flushingPendingSync = false;
 let feedLoadSeq = 0;
 let pendingPhasePhotoRowId = null;
 let phasePhotoViewer = null;
+let phaseCompare = {
+  fromRowId: "",
+  toRowId: "",
+  slotIndex: 0,
+  mode: "side",
+  opacity: 50
+};
 const openPhasePhotoRows = new Set();
 let cloud = {
   ready: false,
@@ -79,7 +87,7 @@ app.addEventListener("pointerdown", handlePointerDown);
 app.addEventListener("toggle", handleToggle, true);
 window.addEventListener("pointermove", handlePointerMove);
 window.addEventListener("pointerup", handlePointerUp);
-window.addEventListener("pointercancel", cancelExerciseDrag);
+window.addEventListener("pointercancel", handlePointerCancel);
 window.addEventListener("pagehide", handlePageHide);
 document.addEventListener("visibilitychange", handleVisibilityChange);
 document.addEventListener("keydown", handleKeyDown);
@@ -522,7 +530,8 @@ function createNutritionPhaseRow(index) {
     calories: "",
     weight: "",
     note: "",
-    photos: []
+    photos: [],
+    photoOrder: []
   };
 }
 
@@ -565,15 +574,24 @@ function findStoredNutritionPhase(nutrition) {
 function normalizeNutritionPhase(phase) {
   const fallback = createNutritionPhase();
   const rows = Array.isArray(phase?.rows) && phase.rows.length ? phase.rows : fallback.rows;
-  const normalizedRows = rows.map((row, index) => ({
-    id: row.id || uid(),
-    weekLabel: String(row.weekLabel || `Tyden ${index + 1}`),
-    date: String(row.date || ""),
-    calories: normalizeOptionalNumber(row.calories),
-    weight: normalizeOptionalNumber(row.weight),
-    note: String(row.note || ""),
-    photos: normalizePhasePhotos(row.photos)
-  }));
+  const normalizedRows = rows.map((row, index) => {
+    const photos = normalizePhasePhotos(row.photos);
+    const photoOrder = normalizePhotoOrder(row.photoOrder);
+    const orderedPhotos = orderPhasePhotos(photos, photoOrder);
+    const orderedKeys = orderedPhotos.map(phasePhotoKey);
+    return {
+      id: row.id || uid(),
+      weekLabel: String(row.weekLabel || `Tyden ${index + 1}`),
+      date: String(row.date || ""),
+      calories: normalizeOptionalNumber(row.calories),
+      weight: normalizeOptionalNumber(row.weight),
+      note: String(row.note || ""),
+      photos: orderedPhotos,
+      photoOrder: orderedPhotos.length
+        ? normalizePhotoOrder([...photoOrder.filter((key) => orderedKeys.includes(key)), ...orderedKeys])
+        : photoOrder
+    };
+  });
   while (normalizedRows.length < DEFAULT_PHASE_WEEKS) {
     normalizedRows.push(createNutritionPhaseRow(normalizedRows.length + 1));
   }
@@ -606,6 +624,47 @@ function normalizePhasePhotos(photos) {
     }));
 }
 
+function normalizePhotoOrder(order) {
+  if (!Array.isArray(order)) return [];
+  const seen = new Set();
+  return order
+    .map((item) => String(item || ""))
+    .filter((key) => {
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, PHASE_PHOTO_LIMIT);
+}
+
+function phasePhotoKey(photo) {
+  return String(photo?.cloudId || photo?.storagePath || photo?.id || "");
+}
+
+function orderPhasePhotos(photos, order) {
+  const normalized = normalizePhasePhotos(photos);
+  const orderMap = new Map(normalizePhotoOrder(order).map((key, index) => [key, index]));
+  return normalized
+    .map((photo, index) => {
+      const key = phasePhotoKey(photo);
+      return {
+        photo,
+        index,
+        order: orderMap.has(key) ? orderMap.get(key) : Number.MAX_SAFE_INTEGER
+      };
+    })
+    .sort((a, b) => a.order - b.order || a.index - b.index)
+    .map((item) => item.photo)
+    .slice(0, PHASE_PHOTO_LIMIT);
+}
+
+function syncPhasePhotoOrder(row) {
+  if (!row) return;
+  const photos = orderPhasePhotos(row.photos, row.photoOrder);
+  row.photos = photos;
+  row.photoOrder = normalizePhotoOrder(photos.map(phasePhotoKey));
+}
+
 function stripPhasePhotosForCloud(phase) {
   const normalized = normalizeNutritionPhase(phase);
   return {
@@ -616,14 +675,24 @@ function stripPhasePhotosForCloud(phase) {
 
 function mergePhasePhotos(targetPhase, sourcePhase) {
   const sourceRows = normalizeNutritionPhase(sourcePhase).rows;
-  const photosById = new Map(sourceRows.map((row) => [row.id, row.photos]));
-  const photosByLabel = new Map(sourceRows.map((row) => [row.weekLabel, row.photos]));
+  const rowsById = new Map(sourceRows.map((row) => [row.id, row]));
+  const rowsByLabel = new Map(sourceRows.map((row) => [row.weekLabel, row]));
   return {
     ...targetPhase,
-    rows: targetPhase.rows.map((row) => ({
-      ...row,
-      photos: normalizePhasePhotos(photosById.get(row.id) || photosByLabel.get(row.weekLabel) || row.photos)
-    }))
+    rows: targetPhase.rows.map((row) => {
+      const sourceRow = rowsById.get(row.id) || rowsByLabel.get(row.weekLabel);
+      const order = normalizePhotoOrder([...normalizePhotoOrder(row.photoOrder), ...normalizePhotoOrder(sourceRow?.photoOrder)]);
+      const sourcePhotos = sourceRow?.photos?.length ? sourceRow.photos : row.photos;
+      const photos = orderPhasePhotos(normalizePhasePhotos(sourcePhotos), order);
+      const photoKeys = photos.map(phasePhotoKey);
+      return {
+        ...row,
+        photos,
+        photoOrder: photos.length
+          ? normalizePhotoOrder([...order.filter((key) => photoKeys.includes(key)), ...photoKeys])
+          : order
+      };
+    })
   };
 }
 
@@ -1119,6 +1188,7 @@ function renderNutritionPhase(phase) {
       <div><strong>${summary.change === null ? "-" : `${summary.change > 0 ? "+" : ""}${formatNumber(summary.change)} kg`}</strong><span>Zmena od startu</span></div>
       <div><strong>${summary.goalGap === null ? "-" : `${summary.goalGap > 0 ? "+" : ""}${formatNumber(summary.goalGap)} kg`}</strong><span>Od goalu</span></div>
     </div>
+    ${renderPhaseCompare(phase)}
     <div class="phase-list">
       <div class="phase-row phase-row-head">
         <span>Tyden</span>
@@ -1144,8 +1214,148 @@ function renderPhaseModeOptions(selected) {
   )).join("");
 }
 
+function renderPhaseCompare(phase) {
+  const rowsWithPhotos = phase.rows
+    .map((row) => ({ ...row, photos: orderPhasePhotos(row.photos, row.photoOrder) }))
+    .filter((row) => row.photos.length);
+  if (!rowsWithPhotos.length) {
+    return `
+      <div class="phase-compare empty">
+        <div>
+          <strong>Compare formy</strong>
+          <span class="microcopy">Nahraj fotky do vice tydnu a appka je porovna podle poradi.</span>
+        </div>
+      </div>
+    `;
+  }
+
+  const selection = resolvePhaseCompare(rowsWithPhotos);
+  const fromPhoto = selection.fromRow?.photos[selection.slotIndex] || null;
+  const toPhoto = selection.toRow?.photos[selection.slotIndex] || null;
+  const maxSlots = Math.max(selection.fromRow?.photos.length || 0, selection.toRow?.photos.length || 0, 1);
+  const canOverlay = Boolean(fromPhoto && toPhoto);
+  return `
+    <div class="phase-compare">
+      <div class="phase-compare-head">
+        <div>
+          <strong>Compare formy</strong>
+          <span class="microcopy">Porovnani bere fotky podle poradi: pozice 1, 2, 3...</span>
+        </div>
+        <div class="phase-compare-mode">
+          <button class="btn compact ${phaseCompare.mode === "side" ? "primary" : ""}" data-action="set-compare-mode" data-mode="side">Vedle sebe</button>
+          <button class="btn compact ${phaseCompare.mode === "overlay" ? "primary" : ""}" data-action="set-compare-mode" data-mode="overlay" ${canOverlay ? "" : "disabled"}>Overlay</button>
+        </div>
+      </div>
+      <div class="phase-compare-controls">
+        <label class="field">
+          <span>Od</span>
+          <select class="select" data-field="phase-compare" data-compare="fromRowId">
+            ${renderCompareRowOptions(rowsWithPhotos, selection.fromRow?.id)}
+          </select>
+        </label>
+        <label class="field">
+          <span>Do</span>
+          <select class="select" data-field="phase-compare" data-compare="toRowId">
+            ${renderCompareRowOptions(rowsWithPhotos, selection.toRow?.id)}
+          </select>
+        </label>
+        <label class="field">
+          <span>Pozice</span>
+          <select class="select" data-field="phase-compare" data-compare="slotIndex">
+            ${Array.from({ length: maxSlots }, (_, index) => (
+              `<option value="${index}" ${index === selection.slotIndex ? "selected" : ""}>Pozice ${index + 1}</option>`
+            )).join("")}
+          </select>
+        </label>
+        ${phaseCompare.mode === "overlay" ? `
+          <label class="field">
+            <span>Prekryti</span>
+            <input class="input" type="range" min="0" max="100" step="5" data-field="phase-compare" data-compare="opacity" value="${escapeAttr(phaseCompare.opacity)}">
+          </label>
+        ` : ""}
+      </div>
+      <div class="phase-compare-slots">
+        <button class="icon-btn" data-action="move-compare-slot" data-direction="-1" title="Predchozi pozice" aria-label="Predchozi pozice">&lt;</button>
+        <strong>Pozice ${selection.slotIndex + 1}/${maxSlots}</strong>
+        <button class="icon-btn" data-action="move-compare-slot" data-direction="1" title="Dalsi pozice" aria-label="Dalsi pozice">&gt;</button>
+      </div>
+      ${phaseCompare.mode === "overlay" && canOverlay
+        ? renderPhaseCompareOverlay(selection.fromRow, fromPhoto, selection.toRow, toPhoto)
+        : renderPhaseCompareSide(selection.fromRow, fromPhoto, selection.toRow, toPhoto)}
+    </div>
+  `;
+}
+
+function resolvePhaseCompare(rowsWithPhotos) {
+  const first = rowsWithPhotos[0];
+  const last = rowsWithPhotos.at(-1) || first;
+  const fromRow = rowsWithPhotos.find((row) => row.id === phaseCompare.fromRowId) || first;
+  const toRow = rowsWithPhotos.find((row) => row.id === phaseCompare.toRowId) || (last.id !== fromRow.id ? last : first);
+  const maxSlots = Math.max(fromRow?.photos.length || 0, toRow?.photos.length || 0, 1);
+  const slotIndex = Math.max(0, Math.min(maxSlots - 1, Number(phaseCompare.slotIndex) || 0));
+  phaseCompare = {
+    ...phaseCompare,
+    fromRowId: fromRow?.id || "",
+    toRowId: toRow?.id || "",
+    slotIndex,
+    mode: phaseCompare.mode === "overlay" ? "overlay" : "side",
+    opacity: Math.max(0, Math.min(100, toNumber(phaseCompare.opacity, 50)))
+  };
+  return { fromRow, toRow, slotIndex };
+}
+
+function renderCompareRowOptions(rows, selectedId) {
+  return rows.map((row) => (
+    `<option value="${escapeAttr(row.id)}" ${row.id === selectedId ? "selected" : ""}>${escapeHtml(compareRowLabel(row))}</option>`
+  )).join("");
+}
+
+function compareRowLabel(row) {
+  return `${row.weekLabel || "Tyden"}${row.date ? ` - ${formatDateForDisplay(row.date)}` : ""} (${row.photos.length})`;
+}
+
+function renderPhaseCompareSide(fromRow, fromPhoto, toRow, toPhoto) {
+  return `
+    <div class="phase-compare-stage side">
+      ${renderComparePhotoPanel("Od", fromRow, fromPhoto)}
+      ${renderComparePhotoPanel("Do", toRow, toPhoto)}
+    </div>
+  `;
+}
+
+function renderComparePhotoPanel(label, row, photo) {
+  return `
+    <div class="compare-photo-panel">
+      <div class="compare-photo-head">
+        <span>${label}</span>
+        <strong>${escapeHtml(compareRowLabel(row))}</strong>
+      </div>
+      ${photo ? `
+        <img src="${escapeAttr(phasePhotoSource(photo))}" alt="${escapeAttr(photo.name)}">
+      ` : `
+        <div class="compare-photo-empty">Tahle pozice tady chybi.</div>
+      `}
+    </div>
+  `;
+}
+
+function renderPhaseCompareOverlay(fromRow, fromPhoto, toRow, toPhoto) {
+  return `
+    <div class="phase-compare-stage overlay">
+      <div class="compare-overlay" style="--overlay:${phaseCompare.opacity / 100}">
+        <img src="${escapeAttr(phasePhotoSource(fromPhoto))}" alt="${escapeAttr(fromPhoto.name)}">
+        <img class="overlay-top" src="${escapeAttr(phasePhotoSource(toPhoto))}" alt="${escapeAttr(toPhoto.name)}">
+      </div>
+      <div class="compare-overlay-legend">
+        <span><strong>Base:</strong> ${escapeHtml(compareRowLabel(fromRow))}</span>
+        <span><strong>Overlay:</strong> ${escapeHtml(compareRowLabel(toRow))}</span>
+      </div>
+    </div>
+  `;
+}
+
 function renderNutritionPhaseRow(row) {
-  const photos = normalizePhasePhotos(row.photos);
+  const photos = orderPhasePhotos(row.photos, row.photoOrder);
   const isPhotoPanelOpen = openPhasePhotoRows.has(row.id);
   const photoStorageText = cloud.session
     ? "Fotky se ukladaji do Supabase a uvidis je i na dalsim zarizeni."
@@ -1186,7 +1396,7 @@ function renderNutritionPhaseRow(row) {
         </div>
         ${photos.length ? `
           <div class="phase-photo-grid">
-            ${photos.map((photo) => renderPhasePhoto(row.id, photo)).join("")}
+            ${photos.map((photo, index) => renderPhasePhoto(row.id, photo, index, photos.length)).join("")}
           </div>
         ` : `
           <div class="phase-photo-empty">Rozklikni tyden a pridej fotku pro porovnani formy.</div>
@@ -1196,10 +1406,19 @@ function renderNutritionPhaseRow(row) {
   `;
 }
 
-function renderPhasePhoto(rowId, photo) {
+function renderPhasePhoto(rowId, photo, index, total) {
   const src = phasePhotoSource(photo);
   return `
-    <figure class="phase-photo-card">
+    <figure class="phase-photo-card" data-phase-photo-card data-row-id="${rowId}" data-photo-id="${photo.id}">
+      <div class="phase-photo-order">
+        <button class="photo-drag-handle" type="button" data-drag-phase-photo-id="${photo.id}" data-row-id="${rowId}" title="Pretahnout fotku" aria-label="Pretahnout fotku">
+          <span>${index + 1}</span>
+        </button>
+        <div class="photo-move-controls">
+          <button class="icon-btn photo-mini-move" data-action="move-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" data-direction="-1" title="Posunout fotku doleva" aria-label="Posunout fotku doleva" ${index === 0 ? "disabled" : ""}>^</button>
+          <button class="icon-btn photo-mini-move" data-action="move-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" data-direction="1" title="Posunout fotku doprava" aria-label="Posunout fotku doprava" ${index >= total - 1 ? "disabled" : ""}>v</button>
+        </div>
+      </div>
       <button class="phase-photo-thumb" data-action="open-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" title="Otevrit fotku" aria-label="Otevrit fotku">
         <img src="${escapeAttr(src)}" alt="${escapeAttr(photo.name)}">
       </button>
@@ -1218,7 +1437,7 @@ function phasePhotoSource(photo) {
 function renderPhasePhotoViewer() {
   if (!phasePhotoViewer) return "";
   const row = findNutritionPhaseRow(phasePhotoViewer.rowId);
-  const photos = normalizePhasePhotos(row?.photos);
+  const photos = orderPhasePhotos(row?.photos, row?.photoOrder);
   const index = photos.findIndex((photo) => photo.id === phasePhotoViewer.photoId);
   if (!row || index < 0) return "";
   const photo = photos[index];
@@ -1962,6 +2181,28 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "move-phase-photo") {
+    const offset = Number(target.dataset.direction);
+    if (movePhasePhotoByOffset(target.dataset.rowId, target.dataset.photoId, offset)) {
+      save();
+      render();
+      showToast("Poradi fotek upraveno.");
+    }
+    return;
+  }
+
+  if (action === "set-compare-mode") {
+    phaseCompare.mode = target.dataset.mode === "overlay" ? "overlay" : "side";
+    render();
+    return;
+  }
+
+  if (action === "move-compare-slot") {
+    phaseCompare.slotIndex = Math.max(0, toNumber(phaseCompare.slotIndex, 0) + Number(target.dataset.direction || 0));
+    render();
+    return;
+  }
+
   if (action === "open-phase-photo") {
     phasePhotoViewer = {
       rowId: target.dataset.rowId,
@@ -1992,9 +2233,11 @@ async function handleClick(event) {
     const removedIndex = previousPhotos.findIndex((photo) => photo.id === photoId);
     const removedPhoto = previousPhotos[removedIndex];
     row.photos = previousPhotos.filter((photo) => photo.id !== photoId);
+    row.photoOrder = normalizePhotoOrder(row.photoOrder).filter((key) => key !== phasePhotoKey(removedPhoto));
+    syncPhasePhotoOrder(row);
     openPhasePhotoRows.add(rowId);
     if (phasePhotoViewer?.rowId === rowId && phasePhotoViewer?.photoId === photoId) {
-      const nextPhotos = normalizePhasePhotos(row.photos);
+      const nextPhotos = orderPhasePhotos(row.photos, row.photoOrder);
       phasePhotoViewer = nextPhotos.length
         ? {
             rowId,
@@ -2002,7 +2245,7 @@ async function handleClick(event) {
           }
         : null;
     }
-    saveLocal();
+    save();
     render();
     showToast(removedPhoto?.storagePath ? "Fotka smazana, cistim cloud..." : "Fotka smazana jen lokalne.");
     if (removedPhoto?.storagePath) {
@@ -2494,6 +2737,12 @@ function handleInput(event) {
     return;
   }
 
+  if (field === "phase-compare") {
+    updatePhaseCompare(event.target);
+    render();
+    return;
+  }
+
   if (field === "day-title") {
     day.title = event.target.value;
     save();
@@ -2569,6 +2818,12 @@ function handleChange(event) {
     return;
   }
 
+  if (field === "phase-compare") {
+    updatePhaseCompare(event.target);
+    render();
+    return;
+  }
+
   if (field === "day-visibility") {
     day.visibility = event.target.value;
     save();
@@ -2631,6 +2886,12 @@ function handleKeyDown(event) {
 }
 
 function handlePointerDown(event) {
+  const photoHandle = event.target.closest("[data-drag-phase-photo-id]");
+  if (photoHandle && event.button <= 0) {
+    startPhasePhotoDrag(event, photoHandle);
+    return;
+  }
+
   const handle = event.target.closest("[data-drag-exercise-id]");
   if (!handle || event.button > 0) return;
 
@@ -2658,6 +2919,11 @@ function handlePointerDown(event) {
 }
 
 function handlePointerMove(event) {
+  if (phasePhotoDrag && event.pointerId === phasePhotoDrag.pointerId) {
+    handlePhasePhotoPointerMove(event);
+    return;
+  }
+
   if (!exerciseDrag || event.pointerId !== exerciseDrag.pointerId) return;
 
   const element = document.elementFromPoint(event.clientX, event.clientY);
@@ -2685,6 +2951,11 @@ function handlePointerMove(event) {
 }
 
 function handlePointerUp(event) {
+  if (phasePhotoDrag && event.pointerId === phasePhotoDrag.pointerId) {
+    finishPhasePhotoDrag(event);
+    return;
+  }
+
   if (!exerciseDrag || event.pointerId !== exerciseDrag.pointerId) return;
 
   const drag = exerciseDrag;
@@ -2696,6 +2967,84 @@ function handlePointerUp(event) {
     render();
     showToast("Poradi cviku upraveno.");
   }
+}
+
+function handlePointerCancel(event) {
+  if (!event || !phasePhotoDrag || event.pointerId === phasePhotoDrag.pointerId) {
+    cancelPhasePhotoDrag();
+  }
+  if (!event || !exerciseDrag || event.pointerId === exerciseDrag.pointerId) {
+    cancelExerciseDrag();
+  }
+}
+
+function startPhasePhotoDrag(event, handle) {
+  const card = handle.closest("[data-phase-photo-card]");
+  const rowId = handle.dataset.rowId;
+  const photoId = handle.dataset.dragPhasePhotoId;
+  const row = findNutritionPhaseRow(rowId);
+  if (!card || !row || !photoId) return;
+
+  phasePhotoDrag = {
+    pointerId: event.pointerId,
+    rowId,
+    photoId,
+    overId: photoId,
+    insertAfter: false,
+    moved: false
+  };
+
+  handle.setPointerCapture?.(event.pointerId);
+  card.classList.add("photo-dragging");
+  document.body.classList.add("dragging-photo");
+  event.preventDefault();
+}
+
+function handlePhasePhotoPointerMove(event) {
+  const element = document.elementFromPoint(event.clientX, event.clientY);
+  const card = element?.closest?.("[data-phase-photo-card]");
+  if (!card || card.dataset.rowId !== phasePhotoDrag.rowId) {
+    event.preventDefault();
+    return;
+  }
+
+  phasePhotoDrag.moved = true;
+  const rect = card.getBoundingClientRect();
+  const insertAfter = event.clientX > rect.left + rect.width / 2;
+
+  document.querySelectorAll(".phase-photo-card.photo-drop-before, .phase-photo-card.photo-drop-after").forEach((item) => {
+    item.classList.remove("photo-drop-before", "photo-drop-after");
+  });
+
+  if (card.dataset.photoId !== phasePhotoDrag.photoId) {
+    card.classList.add(insertAfter ? "photo-drop-after" : "photo-drop-before");
+  }
+
+  phasePhotoDrag.overId = card.dataset.photoId;
+  phasePhotoDrag.insertAfter = insertAfter;
+  event.preventDefault();
+}
+
+function finishPhasePhotoDrag(event) {
+  const drag = phasePhotoDrag;
+  cancelPhasePhotoDrag();
+
+  if (!drag.moved || !drag.overId || drag.overId === drag.photoId) return;
+  if (movePhasePhotoInRow(drag.rowId, drag.photoId, drag.overId, drag.insertAfter)) {
+    save();
+    render();
+    showToast("Poradi fotek upraveno.");
+  }
+  event.preventDefault();
+}
+
+function cancelPhasePhotoDrag() {
+  if (!phasePhotoDrag) return;
+  phasePhotoDrag = null;
+  document.body.classList.remove("dragging-photo");
+  document.querySelectorAll(".phase-photo-card.photo-dragging, .phase-photo-card.photo-drop-before, .phase-photo-card.photo-drop-after").forEach((card) => {
+    card.classList.remove("photo-dragging", "photo-drop-before", "photo-drop-after");
+  });
 }
 
 function cancelExerciseDrag() {
@@ -2801,7 +3150,8 @@ async function handlePhasePhotoImport(event) {
       preparedPhotos.push(prepared);
       localPhotos.push(localPhasePhotoFromPrepared(prepared));
     }
-    row.photos = [...normalizePhasePhotos(row.photos), ...localPhotos].slice(-PHASE_PHOTO_LIMIT);
+    row.photos = [...orderPhasePhotos(row.photos, row.photoOrder), ...localPhotos].slice(-PHASE_PHOTO_LIMIT);
+    syncPhasePhotoOrder(row);
     openPhasePhotoRows.add(rowId);
     saveLocal();
     render();
@@ -2820,13 +3170,13 @@ async function handlePhasePhotoImport(event) {
         uploadedPreviewIds.push(localPhotos[index].id);
       }
       replacePhasePhotoPreviews(rowId, uploadedPreviewIds, uploadedPhotos);
-      saveLocal();
+      save();
       render();
       showToast(formatPhotoSaveMessage(uploadedPhotos.length, true));
     } catch (error) {
       if (uploadedPhotos.length) {
         replacePhasePhotoPreviews(rowId, uploadedPreviewIds, uploadedPhotos);
-        saveLocal();
+        save();
         render();
       }
       console.warn(error);
@@ -2912,10 +3262,13 @@ function replacePhasePhotoPreviews(rowId, previewIds, uploadedPhotos) {
   const row = findNutritionPhaseRow(rowId);
   if (!row) return;
   const previewIdSet = new Set(previewIds);
+  const uploadedByPreviewId = new Map(previewIds.map((previewId, index) => [previewId, phasePhotoKey(uploadedPhotos[index])]));
+  row.photoOrder = normalizePhotoOrder(row.photoOrder).map((key) => uploadedByPreviewId.get(key) || key);
   row.photos = [
-    ...normalizePhasePhotos(row.photos).filter((photo) => !previewIdSet.has(photo.id)),
+    ...orderPhasePhotos(row.photos, row.photoOrder).filter((photo) => !previewIdSet.has(photo.id)),
     ...uploadedPhotos
   ].slice(-PHASE_PHOTO_LIMIT);
+  syncPhasePhotoOrder(row);
   openPhasePhotoRows.add(rowId);
 }
 
@@ -2924,7 +3277,7 @@ async function syncLocalPhasePhotosToCloud() {
   let uploadedCount = 0;
 
   for (const row of state.nutritionPhase.rows) {
-    const localPhotos = normalizePhasePhotos(row.photos).filter((photo) => photo.dataUrl && !photo.storagePath);
+    const localPhotos = orderPhasePhotos(row.photos, row.photoOrder).filter((photo) => photo.dataUrl && !photo.storagePath);
     if (!localPhotos.length) continue;
 
     const uploadedPhotos = [];
@@ -2946,7 +3299,7 @@ async function syncLocalPhasePhotosToCloud() {
   }
 
   if (uploadedCount) {
-    saveLocal();
+    save();
     showToast(`${uploadedCount} lokalni fotky doposlany do cloudu.`);
   }
   return uploadedCount;
@@ -3239,15 +3592,20 @@ function attachCloudPhasePhotos(photos) {
   });
 
   state.nutritionPhase.rows = state.nutritionPhase.rows.map((row) => {
-    const localPhotos = normalizePhasePhotos(row.photos).filter((photo) => !photo.storagePath);
+    const localPhotos = orderPhasePhotos(row.photos, row.photoOrder).filter((photo) => !photo.storagePath);
     const cloudPhotos = [
       ...(byRowId.get(row.id) || []),
       ...(byWeekLabel.get(row.weekLabel) || []),
       ...(byWeekNumber.get(phaseWeekNumber(row.weekLabel)) || [])
     ];
+    const mergedPhotos = mergePhasePhotoLists(localPhotos, cloudPhotos, row.photoOrder);
+    const mergedKeys = mergedPhotos.map(phasePhotoKey);
     return {
       ...row,
-      photos: mergePhasePhotoLists(localPhotos, cloudPhotos)
+      photos: mergedPhotos,
+      photoOrder: mergedPhotos.length
+        ? normalizePhotoOrder([...normalizePhotoOrder(row.photoOrder).filter((key) => mergedKeys.includes(key)), ...mergedKeys])
+        : normalizePhotoOrder(row.photoOrder)
     };
   });
 }
@@ -3260,15 +3618,16 @@ function phaseWeekNumber(label) {
   return match ? Number(match[1]) : null;
 }
 
-function mergePhasePhotoLists(localPhotos, cloudPhotos) {
+function mergePhasePhotoLists(localPhotos, cloudPhotos, order = []) {
   const merged = new Map();
   [...localPhotos, ...cloudPhotos].forEach((photo) => {
     const key = photo.cloudId || photo.storagePath || photo.id;
     merged.set(key, photo);
   });
-  return [...merged.values()]
+  const photos = [...merged.values()]
     .sort((a, b) => new Date(a.addedAt) - new Date(b.addedAt))
     .slice(-PHASE_PHOTO_LIMIT);
+  return orderPhasePhotos(photos, order);
 }
 
 function cloudPhasePhotoFromRow(record, url) {
@@ -3746,6 +4105,22 @@ function updateNutritionPhaseRow(input) {
     : input.value;
 }
 
+function updatePhaseCompare(input) {
+  const field = input.dataset.compare;
+  if (!field) return;
+  if (field === "slotIndex") {
+    phaseCompare.slotIndex = Math.max(0, Number(input.value) || 0);
+    return;
+  }
+  if (field === "opacity") {
+    phaseCompare.opacity = Math.max(0, Math.min(100, toNumber(input.value, 50)));
+    return;
+  }
+  if (field === "fromRowId" || field === "toRowId") {
+    phaseCompare[field] = input.value;
+  }
+}
+
 function findNutritionPhaseRow(rowId) {
   if (!rowId) return null;
   return state.nutritionPhase.rows.find((item) => item.id === rowId) || null;
@@ -3754,7 +4129,7 @@ function findNutritionPhaseRow(rowId) {
 function movePhasePhotoViewer(offset) {
   if (!phasePhotoViewer) return;
   const row = findNutritionPhaseRow(phasePhotoViewer.rowId);
-  const photos = normalizePhasePhotos(row?.photos);
+  const photos = orderPhasePhotos(row?.photos, row?.photoOrder);
   if (photos.length <= 1) return;
   const index = photos.findIndex((photo) => photo.id === phasePhotoViewer.photoId);
   const nextIndex = (Math.max(0, index) + offset + photos.length) % photos.length;
@@ -3762,6 +4137,41 @@ function movePhasePhotoViewer(offset) {
     rowId: phasePhotoViewer.rowId,
     photoId: photos[nextIndex].id
   };
+}
+
+function movePhasePhotoByOffset(rowId, photoId, offset) {
+  const row = findNutritionPhaseRow(rowId);
+  const photos = orderPhasePhotos(row?.photos, row?.photoOrder);
+  const fromIndex = photos.findIndex((photo) => photo.id === photoId);
+  const toIndex = fromIndex + offset;
+  if (!row || fromIndex < 0 || toIndex < 0 || toIndex >= photos.length) return false;
+  const [moved] = photos.splice(fromIndex, 1);
+  photos.splice(toIndex, 0, moved);
+  row.photos = photos;
+  syncPhasePhotoOrder(row);
+  openPhasePhotoRows.add(rowId);
+  return true;
+}
+
+function movePhasePhotoInRow(rowId, photoId, targetId, insertAfter) {
+  const row = findNutritionPhaseRow(rowId);
+  const photos = orderPhasePhotos(row?.photos, row?.photoOrder);
+  const fromIndex = photos.findIndex((photo) => photo.id === photoId);
+  const targetIndex = photos.findIndex((photo) => photo.id === targetId);
+  if (!row || fromIndex < 0 || targetIndex < 0 || fromIndex === targetIndex) return false;
+
+  const [moved] = photos.splice(fromIndex, 1);
+  let insertIndex = photos.findIndex((photo) => photo.id === targetId);
+  if (insertIndex < 0) {
+    photos.splice(fromIndex, 0, moved);
+    return false;
+  }
+  if (insertAfter) insertIndex += 1;
+  photos.splice(insertIndex, 0, moved);
+  row.photos = photos;
+  syncPhasePhotoOrder(row);
+  openPhasePhotoRows.add(rowId);
+  return true;
 }
 
 function addLibraryExercise(id) {
@@ -4117,6 +4527,13 @@ function weekRangeLabel(weekStart) {
 
 function formatShortDate(date) {
   return `${date.getDate()}.${date.getMonth() + 1}.`;
+}
+
+function formatDateForDisplay(value) {
+  if (!value) return "";
+  const date = parseDate(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return `${date.getDate()}.${date.getMonth() + 1}.${date.getFullYear()}`;
 }
 
 function formatNumber(value) {
