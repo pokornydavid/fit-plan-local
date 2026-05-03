@@ -49,6 +49,7 @@ let flushingPendingSync = false;
 let feedLoadSeq = 0;
 let pendingPhasePhotoRowId = null;
 let phasePhotoViewer = null;
+let phaseCompareViewer = null;
 let phaseCompare = {
   fromRowId: "",
   toRowId: "",
@@ -856,6 +857,7 @@ function render() {
       </header>
       ${content}
       ${renderPhasePhotoViewer()}
+      ${renderPhaseCompareViewer()}
     </div>
   `;
 }
@@ -1215,9 +1217,7 @@ function renderPhaseModeOptions(selected) {
 }
 
 function renderPhaseCompare(phase) {
-  const rowsWithPhotos = phase.rows
-    .map((row) => ({ ...row, photos: orderPhasePhotos(row.photos, row.photoOrder) }))
-    .filter((row) => row.photos.length);
+  const rowsWithPhotos = phaseRowsWithPhotos(phase);
   if (!rowsWithPhotos.length) {
     return `
       <div class="phase-compare empty">
@@ -1269,8 +1269,17 @@ function renderPhaseCompare(phase) {
         <button class="icon-btn" type="button" data-action="move-compare-slot" data-direction="1" title="Dalsi pozice" aria-label="Dalsi pozice">&gt;</button>
       </div>
       ${renderPhaseCompareSide(selection.fromRow, fromPhoto, selection.toRow, toPhoto)}
+      <div class="phase-compare-actions">
+        <button class="btn" type="button" data-action="open-phase-compare-viewer" ${!fromPhoto || !toPhoto ? "disabled" : ""}>Otevrit velky compare se zoomem</button>
+      </div>
     </div>
   `;
+}
+
+function phaseRowsWithPhotos(phase = state.nutritionPhase) {
+  return phase.rows
+    .map((row) => ({ ...row, photos: orderPhasePhotos(row.photos, row.photoOrder) }))
+    .filter((row) => row.photos.length);
 }
 
 function resolvePhaseCompare(rowsWithPhotos) {
@@ -1321,6 +1330,84 @@ function renderComparePhotoPanel(label, row, photo) {
         <div class="compare-photo-empty">Tahle pozice tady chybi.</div>
       `}
     </div>
+  `;
+}
+
+function renderPhaseCompareViewer() {
+  if (!phaseCompareViewer) return "";
+  const rowsWithPhotos = phaseRowsWithPhotos();
+  if (!rowsWithPhotos.length) return "";
+  const selection = resolvePhaseCompareViewer(rowsWithPhotos);
+  if (!selection.fromRow || !selection.toRow) return "";
+  const fromPhoto = selection.fromRow.photos[selection.slotIndex] || null;
+  const toPhoto = selection.toRow.photos[selection.slotIndex] || null;
+  const zoom = selection.zoom;
+  return `
+    <div class="compare-viewer" role="dialog" aria-modal="true" aria-label="Velky compare formy">
+      <button class="compare-viewer-backdrop" data-action="close-phase-compare-viewer" aria-label="Zavrit compare"></button>
+      <div class="compare-viewer-panel" style="--compare-zoom: ${zoom}%;">
+        <div class="compare-viewer-head">
+          <div>
+            <strong>Velky compare formy</strong>
+            <span>${escapeHtml(compareRowLabel(selection.fromRow))} vs ${escapeHtml(compareRowLabel(selection.toRow))}</span>
+          </div>
+          <button class="icon-btn" data-action="close-phase-compare-viewer" title="Zavrit" aria-label="Zavrit">x</button>
+        </div>
+        <div class="compare-viewer-toolbar">
+          <div class="compare-viewer-slot-nav">
+            <button class="icon-btn" type="button" data-action="prev-phase-compare-viewer" title="Predchozi pozice" aria-label="Predchozi pozice">&lt;</button>
+            <strong>Pozice ${selection.slotIndex + 1}/${selection.maxSlots}</strong>
+            <button class="icon-btn" type="button" data-action="next-phase-compare-viewer" title="Dalsi pozice" aria-label="Dalsi pozice">&gt;</button>
+          </div>
+          <div class="compare-viewer-zoom">
+            <button class="icon-btn" type="button" data-action="zoom-phase-compare-viewer" data-direction="-25" title="Oddalit" aria-label="Oddalit">-</button>
+            <input type="range" min="75" max="250" step="25" value="${zoom}" data-field="phase-compare-zoom" aria-label="Zoom compare fotek">
+            <span>${zoom}%</span>
+            <button class="icon-btn" type="button" data-action="zoom-phase-compare-viewer" data-direction="25" title="Priblizit" aria-label="Priblizit">+</button>
+            <button class="btn compact" type="button" data-action="reset-phase-compare-zoom">100%</button>
+          </div>
+        </div>
+        <div class="compare-viewer-stage">
+          ${renderCompareViewerPhotoPanel("Od", selection.fromRow, fromPhoto)}
+          ${renderCompareViewerPhotoPanel("Do", selection.toRow, toPhoto)}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function resolvePhaseCompareViewer(rowsWithPhotos) {
+  const first = rowsWithPhotos[0];
+  const last = rowsWithPhotos.at(-1) || first;
+  const fromRow = rowsWithPhotos.find((row) => row.id === phaseCompareViewer.fromRowId) || first;
+  const toRow = rowsWithPhotos.find((row) => row.id === phaseCompareViewer.toRowId) || (last.id !== fromRow.id ? last : first);
+  const maxSlots = Math.max(fromRow?.photos.length || 0, toRow?.photos.length || 0, 1);
+  const slotIndex = Math.max(0, Math.min(maxSlots - 1, Number(phaseCompareViewer.slotIndex) || 0));
+  const zoom = Math.max(75, Math.min(250, Number(phaseCompareViewer.zoom) || 100));
+  phaseCompareViewer = {
+    fromRowId: fromRow?.id || "",
+    toRowId: toRow?.id || "",
+    slotIndex,
+    zoom
+  };
+  return { fromRow, toRow, slotIndex, maxSlots, zoom };
+}
+
+function renderCompareViewerPhotoPanel(label, row, photo) {
+  return `
+    <section class="compare-viewer-photo">
+      <div class="compare-viewer-photo-head">
+        <span>${label}</span>
+        <strong>${escapeHtml(compareRowLabel(row))}</strong>
+      </div>
+      <div class="compare-viewer-photo-frame">
+        ${photo ? `
+          <img src="${escapeAttr(phasePhotoSource(photo))}" alt="${escapeAttr(photo.name)}">
+        ` : `
+          <div class="compare-photo-empty">Tahle pozice tady chybi.</div>
+        `}
+      </div>
+    </section>
   `;
 }
 
@@ -2168,6 +2255,47 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "open-phase-compare-viewer") {
+    const rowsWithPhotos = phaseRowsWithPhotos();
+    if (!rowsWithPhotos.length) {
+      showToast("Nejdriv nahraj fotky aspon do jednoho tydne.");
+      return;
+    }
+    const selection = resolvePhaseCompare(rowsWithPhotos);
+    phaseCompareViewer = {
+      fromRowId: selection.fromRow?.id || "",
+      toRowId: selection.toRow?.id || "",
+      slotIndex: selection.slotIndex,
+      zoom: 100
+    };
+    render();
+    return;
+  }
+
+  if (action === "close-phase-compare-viewer") {
+    phaseCompareViewer = null;
+    render();
+    return;
+  }
+
+  if (action === "prev-phase-compare-viewer" || action === "next-phase-compare-viewer") {
+    movePhaseCompareViewer(action === "prev-phase-compare-viewer" ? -1 : 1);
+    render();
+    return;
+  }
+
+  if (action === "zoom-phase-compare-viewer") {
+    zoomPhaseCompareViewer(Number(target.dataset.direction || 0));
+    render();
+    return;
+  }
+
+  if (action === "reset-phase-compare-zoom") {
+    if (phaseCompareViewer) phaseCompareViewer.zoom = 100;
+    render();
+    return;
+  }
+
   if (action === "open-phase-photo") {
     phasePhotoViewer = {
       rowId: target.dataset.rowId,
@@ -2708,6 +2836,12 @@ function handleInput(event) {
     return;
   }
 
+  if (field === "phase-compare-zoom") {
+    setPhaseCompareViewerZoom(event.target.value);
+    render();
+    return;
+  }
+
   if (field === "day-title") {
     day.title = event.target.value;
     save();
@@ -2785,6 +2919,12 @@ function handleChange(event) {
 
   if (field === "phase-compare") {
     updatePhaseCompare(event.target);
+    render();
+    return;
+  }
+
+  if (field === "phase-compare-zoom") {
+    setPhaseCompareViewerZoom(event.target.value);
     render();
     return;
   }
@@ -4086,6 +4226,26 @@ function updatePhaseCompare(input) {
   if (field === "fromRowId" || field === "toRowId") {
     phaseCompare[field] = input.value;
   }
+}
+
+function movePhaseCompareViewer(offset) {
+  if (!phaseCompareViewer) return;
+  const rowsWithPhotos = phaseRowsWithPhotos();
+  if (!rowsWithPhotos.length) return;
+  const selection = resolvePhaseCompareViewer(rowsWithPhotos);
+  const nextIndex = (selection.slotIndex + offset + selection.maxSlots) % selection.maxSlots;
+  phaseCompareViewer.slotIndex = nextIndex;
+  phaseCompare.slotIndex = nextIndex;
+}
+
+function zoomPhaseCompareViewer(offset) {
+  if (!phaseCompareViewer) return;
+  setPhaseCompareViewerZoom((Number(phaseCompareViewer.zoom) || 100) + offset);
+}
+
+function setPhaseCompareViewerZoom(value) {
+  if (!phaseCompareViewer) return;
+  phaseCompareViewer.zoom = Math.max(75, Math.min(250, Number(value) || 100));
 }
 
 function findNutritionPhaseRow(rowId) {
