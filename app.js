@@ -52,9 +52,7 @@ let phasePhotoViewer = null;
 let phaseCompare = {
   fromRowId: "",
   toRowId: "",
-  slotIndex: 0,
-  mode: "side",
-  opacity: 50
+  slotIndex: 0
 };
 const openPhasePhotoRows = new Set();
 let cloud = {
@@ -1233,17 +1231,12 @@ function renderPhaseCompare(phase) {
   const fromPhoto = selection.fromRow?.photos[selection.slotIndex] || null;
   const toPhoto = selection.toRow?.photos[selection.slotIndex] || null;
   const maxSlots = Math.max(selection.fromRow?.photos.length || 0, selection.toRow?.photos.length || 0, 1);
-  const canOverlay = Boolean(fromPhoto && toPhoto);
   return `
     <div class="phase-compare">
       <div class="phase-compare-head">
         <div>
           <strong>Compare formy</strong>
-          <span class="microcopy">Porovnani bere fotky podle poradi: pozice 1, 2, 3...</span>
-        </div>
-        <div class="phase-compare-mode">
-          <button class="btn compact ${phaseCompare.mode === "side" ? "primary" : ""}" type="button" data-action="set-compare-mode" data-mode="side">Vedle sebe</button>
-          <button class="btn compact ${phaseCompare.mode === "overlay" ? "primary" : ""}" type="button" data-action="set-compare-mode" data-mode="overlay" ${canOverlay ? "" : "disabled"}>Overlay</button>
+          <span class="microcopy">Vyber dva tydny a porovnej stejnou pozici fotky vedle sebe.</span>
         </div>
       </div>
       <div class="phase-compare-controls">
@@ -1267,21 +1260,13 @@ function renderPhaseCompare(phase) {
             )).join("")}
           </select>
         </label>
-        ${phaseCompare.mode === "overlay" ? `
-          <label class="field">
-            <span>Prekryti</span>
-            <input class="input" type="range" min="0" max="100" step="5" data-field="phase-compare" data-compare="opacity" value="${escapeAttr(phaseCompare.opacity)}">
-          </label>
-        ` : ""}
       </div>
       <div class="phase-compare-slots">
         <button class="icon-btn" type="button" data-action="move-compare-slot" data-direction="-1" title="Predchozi pozice" aria-label="Predchozi pozice">&lt;</button>
         <strong>Pozice ${selection.slotIndex + 1}/${maxSlots}</strong>
         <button class="icon-btn" type="button" data-action="move-compare-slot" data-direction="1" title="Dalsi pozice" aria-label="Dalsi pozice">&gt;</button>
       </div>
-      ${phaseCompare.mode === "overlay" && canOverlay
-        ? renderPhaseCompareOverlay(selection.fromRow, fromPhoto, selection.toRow, toPhoto)
-        : renderPhaseCompareSide(selection.fromRow, fromPhoto, selection.toRow, toPhoto)}
+      ${renderPhaseCompareSide(selection.fromRow, fromPhoto, selection.toRow, toPhoto)}
     </div>
   `;
 }
@@ -1297,9 +1282,7 @@ function resolvePhaseCompare(rowsWithPhotos) {
     ...phaseCompare,
     fromRowId: fromRow?.id || "",
     toRowId: toRow?.id || "",
-    slotIndex,
-    mode: phaseCompare.mode === "overlay" ? "overlay" : "side",
-    opacity: Math.max(0, Math.min(100, toNumber(phaseCompare.opacity, 50)))
+    slotIndex
   };
   return { fromRow, toRow, slotIndex };
 }
@@ -1335,21 +1318,6 @@ function renderComparePhotoPanel(label, row, photo) {
       ` : `
         <div class="compare-photo-empty">Tahle pozice tady chybi.</div>
       `}
-    </div>
-  `;
-}
-
-function renderPhaseCompareOverlay(fromRow, fromPhoto, toRow, toPhoto) {
-  return `
-    <div class="phase-compare-stage overlay">
-      <div class="compare-overlay" style="--overlay:${phaseCompare.opacity / 100}">
-        <img src="${escapeAttr(phasePhotoSource(fromPhoto))}" alt="${escapeAttr(fromPhoto.name)}">
-        <img class="overlay-top" src="${escapeAttr(phasePhotoSource(toPhoto))}" alt="${escapeAttr(toPhoto.name)}">
-      </div>
-      <div class="compare-overlay-legend">
-        <span><strong>Base:</strong> ${escapeHtml(compareRowLabel(fromRow))}</span>
-        <span><strong>Overlay:</strong> ${escapeHtml(compareRowLabel(toRow))}</span>
-      </div>
     </div>
   `;
 }
@@ -2189,12 +2157,6 @@ async function handleClick(event) {
       render();
       showToast("Poradi fotek upraveno.");
     }
-    return;
-  }
-
-  if (action === "set-compare-mode") {
-    phaseCompare.mode = target.dataset.mode === "overlay" ? "overlay" : "side";
-    render();
     return;
   }
 
@@ -4117,10 +4079,6 @@ function updatePhaseCompare(input) {
   if (!field) return;
   if (field === "slotIndex") {
     phaseCompare.slotIndex = Math.max(0, Number(input.value) || 0);
-    return;
-  }
-  if (field === "opacity") {
-    phaseCompare.opacity = Math.max(0, Math.min(100, toNumber(input.value, 50)));
     return;
   }
   if (field === "fromRowId" || field === "toRowId") {

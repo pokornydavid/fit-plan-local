@@ -1018,8 +1018,7 @@ button.cloud-badge:hover {
 
 .phase-compare-head,
 .phase-compare-slots,
-.compare-photo-head,
-.compare-overlay-legend {
+.compare-photo-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1033,15 +1032,9 @@ button.cloud-badge:hover {
   font-size: 1rem;
 }
 
-.phase-compare-mode {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .phase-compare-controls {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(150px, 0.7fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1062,13 +1055,7 @@ button.cloud-badge:hover {
   gap: 12px;
 }
 
-.phase-compare-stage.overlay {
-  display: grid;
-  gap: 10px;
-}
-
-.compare-photo-panel,
-.compare-overlay {
+.compare-photo-panel {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--control);
@@ -1080,8 +1067,7 @@ button.cloud-badge:hover {
   border-bottom: 1px solid var(--line);
 }
 
-.compare-photo-head span,
-.compare-overlay-legend span {
+.compare-photo-head span {
   color: var(--muted);
   font-size: 0.78rem;
 }
@@ -1106,32 +1092,6 @@ button.cloud-badge:hover {
   padding: 18px;
   color: var(--muted);
   text-align: center;
-}
-
-.compare-overlay {
-  position: relative;
-  width: min(620px, 100%);
-  justify-self: center;
-  background: var(--field-bg);
-}
-
-.compare-overlay img {
-  width: 100%;
-  max-height: 620px;
-  object-fit: contain;
-  display: block;
-}
-
-.compare-overlay .overlay-top {
-  position: absolute;
-  inset: 0;
-  height: 100%;
-  opacity: var(--overlay);
-}
-
-.compare-overlay-legend {
-  justify-content: center;
-  flex-wrap: wrap;
 }
 
 .phase-list {

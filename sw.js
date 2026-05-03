@@ -1,9 +1,9 @@
-const CACHE_NAME = "fit-plan-v43";
+const CACHE_NAME = "fit-plan-v44";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=43",
-  "./app.js?v=43",
+  "./styles.css?v=44",
+  "./app.js?v=44",
   "./supabase-config.js",
   "./manifest.webmanifest",
   "./icon.svg"
