@@ -656,9 +656,11 @@ function orderPhasePhotos(photos, order) {
     .slice(0, PHASE_PHOTO_LIMIT);
 }
 
-function syncPhasePhotoOrder(row) {
+function syncPhasePhotoOrder(row, keepCurrentOrder = false) {
   if (!row) return;
-  const photos = orderPhasePhotos(row.photos, row.photoOrder);
+  const photos = keepCurrentOrder
+    ? normalizePhasePhotos(row.photos)
+    : orderPhasePhotos(row.photos, row.photoOrder);
   row.photos = photos;
   row.photoOrder = normalizePhotoOrder(photos.map(phasePhotoKey));
 }
@@ -4113,7 +4115,7 @@ function movePhasePhotoByOffset(rowId, photoId, offset) {
   const [moved] = photos.splice(fromIndex, 1);
   photos.splice(toIndex, 0, moved);
   row.photos = photos;
-  syncPhasePhotoOrder(row);
+  syncPhasePhotoOrder(row, true);
   openPhasePhotoRows.add(rowId);
   return true;
 }
@@ -4134,7 +4136,7 @@ function movePhasePhotoInRow(rowId, photoId, targetId, insertAfter) {
   if (insertAfter) insertIndex += 1;
   photos.splice(insertIndex, 0, moved);
   row.photos = photos;
-  syncPhasePhotoOrder(row);
+  syncPhasePhotoOrder(row, true);
   openPhasePhotoRows.add(rowId);
   return true;
 }
@@ -4417,7 +4419,7 @@ function registerServiceWorker() {
     window.location.reload();
   });
 
-  navigator.serviceWorker.register("./sw.js")
+  navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" })
     .then((registration) => registration.update())
     .catch(() => {});
 }
