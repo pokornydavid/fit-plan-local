@@ -3,6 +3,8 @@
 Jednoducha lokalni appka na planovani treninku ve fitku. Bezi bez databaze,
 umi bezet v lokalnim rezimu, ale je pripravena i na Supabase login, cloud
 databazi, nutrition tracking, public feed a leaderboard.
+Progress fotky z diet/bulk sekce umi ukladat do Supabase Storage, aby byly
+videt mezi mobilem a pocitacem.
 
 ## Spusteni
 
@@ -21,7 +23,8 @@ Data se ukladaji do `localStorage` v prohlizeci. V appce je i export/import JSON
 ## Supabase cloud
 
 1. Vytvor Supabase projekt.
-2. V SQL editoru spust `supabase-schema.sql`.
+2. V SQL editoru spust `supabase-schema.sql`. Pokud uz schema mas, staci doplnit
+   `supabase-progress-photos.sql` pro cloud fotky.
 3. Do `supabase-config.js` dopln `SUPABASE_URL` a publishable key.
 4. Spust appku znovu. Prihlaseni/registrace se objevi automaticky.
 

@@ -5,6 +5,9 @@ const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const CLOUD_INIT_TIMEOUT_MS = 7000;
 const DEFAULT_PHASE_WEEKS = 16;
+const PHASE_PHOTO_BUCKET = "progress-photos";
+const PHASE_PHOTO_LIMIT = 12;
+const PHASE_PHOTO_SIGNED_URL_SECONDS = 60 * 60 * 24 * 7;
 const DAY_LABELS = [
   ["Po", "Pondeli"],
   ["Ut", "Utery"],
@@ -583,13 +586,18 @@ function normalizeNutritionPhase(phase) {
 function normalizePhasePhotos(photos) {
   if (!Array.isArray(photos)) return [];
   return photos
-    .filter((photo) => photo?.dataUrl)
-    .slice(0, 12)
+    .filter((photo) => photo?.dataUrl || photo?.url || photo?.storagePath)
+    .slice(0, PHASE_PHOTO_LIMIT)
     .map((photo) => ({
       id: photo.id || uid(),
       name: String(photo.name || "Posing photo"),
       addedAt: photo.addedAt || new Date().toISOString(),
-      dataUrl: String(photo.dataUrl),
+      dataUrl: photo.dataUrl ? String(photo.dataUrl) : "",
+      url: photo.url ? String(photo.url) : "",
+      storagePath: photo.storagePath ? String(photo.storagePath) : "",
+      cloudId: photo.cloudId ? String(photo.cloudId) : "",
+      phaseRowId: photo.phaseRowId ? String(photo.phaseRowId) : "",
+      weekLabel: photo.weekLabel ? String(photo.weekLabel) : "",
       width: toNumber(photo.width, 0),
       height: toNumber(photo.height, 0)
     }));
@@ -1135,6 +1143,9 @@ function renderPhaseModeOptions(selected) {
 function renderNutritionPhaseRow(row) {
   const photos = normalizePhasePhotos(row.photos);
   const isPhotoPanelOpen = openPhasePhotoRows.has(row.id);
+  const photoStorageText = cloud.session
+    ? "Fotky se ukladaji do Supabase a uvidis je i na dalsim zarizeni."
+    : "Bez prihlaseni zustanou fotky jen na tomhle zarizeni.";
   return `
     <div class="phase-entry">
       <div class="phase-row">
@@ -1163,7 +1174,7 @@ function renderNutritionPhaseRow(row) {
         </summary>
         <div class="phase-photo-tools">
           <button class="btn compact" data-action="add-phase-photo" data-row-id="${row.id}">+ Fotky</button>
-          <span class="microcopy">Jen lokalne na tomhle zarizeni.</span>
+          <span class="microcopy">${photoStorageText}</span>
         </div>
         ${photos.length ? `
           <div class="phase-photo-grid">
@@ -1178,10 +1189,11 @@ function renderNutritionPhaseRow(row) {
 }
 
 function renderPhasePhoto(rowId, photo) {
+  const src = phasePhotoSource(photo);
   return `
     <figure class="phase-photo-card">
       <button class="phase-photo-thumb" data-action="open-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" title="Otevrit fotku" aria-label="Otevrit fotku">
-        <img src="${escapeAttr(photo.dataUrl)}" alt="${escapeAttr(photo.name)}">
+        <img src="${escapeAttr(src)}" alt="${escapeAttr(photo.name)}">
       </button>
       <figcaption>
         <span>${escapeHtml(formatPhotoDate(photo.addedAt))}</span>
@@ -1191,6 +1203,10 @@ function renderPhasePhoto(rowId, photo) {
   `;
 }
 
+function phasePhotoSource(photo) {
+  return photo?.dataUrl || photo?.url || "";
+}
+
 function renderPhasePhotoViewer() {
   if (!phasePhotoViewer) return "";
   const row = findNutritionPhaseRow(phasePhotoViewer.rowId);
@@ -1198,6 +1214,7 @@ function renderPhasePhotoViewer() {
   const index = photos.findIndex((photo) => photo.id === phasePhotoViewer.photoId);
   if (!row || index < 0) return "";
   const photo = photos[index];
+  const src = phasePhotoSource(photo);
   return `
     <div class="photo-viewer" role="dialog" aria-modal="true" aria-label="Posing fotka">
       <button class="photo-viewer-backdrop" data-action="close-phase-photo" aria-label="Zavrit galerii"></button>
@@ -1211,7 +1228,7 @@ function renderPhasePhotoViewer() {
         </div>
         <div class="photo-viewer-stage">
           <button class="icon-btn photo-nav" data-action="prev-phase-photo" title="Predchozi fotka" aria-label="Predchozi fotka" ${photos.length <= 1 ? "disabled" : ""}>&lt;</button>
-          <img src="${escapeAttr(photo.dataUrl)}" alt="${escapeAttr(photo.name)}">
+          <img src="${escapeAttr(src)}" alt="${escapeAttr(photo.name)}">
           <button class="icon-btn photo-nav" data-action="next-phase-photo" title="Dalsi fotka" aria-label="Dalsi fotka" ${photos.length <= 1 ? "disabled" : ""}>&gt;</button>
         </div>
       </div>
@@ -1965,6 +1982,16 @@ async function handleClick(event) {
     if (!row) return;
     const previousPhotos = normalizePhasePhotos(row.photos);
     const removedIndex = previousPhotos.findIndex((photo) => photo.id === photoId);
+    const removedPhoto = previousPhotos[removedIndex];
+    if (removedPhoto?.storagePath) {
+      try {
+        await deleteCloudPhasePhoto(removedPhoto);
+      } catch (error) {
+        console.warn(error);
+        showCloudError("Fotku se nepodarilo smazat z cloudu.", error);
+        return;
+      }
+    }
     row.photos = previousPhotos.filter((photo) => photo.id !== photoId);
     openPhasePhotoRows.add(rowId);
     if (phasePhotoViewer?.rowId === rowId && phasePhotoViewer?.photoId === photoId) {
@@ -1978,7 +2005,7 @@ async function handleClick(event) {
     }
     saveLocal();
     render();
-    showToast("Fotka smazana jen lokalne.");
+    showToast(removedPhoto?.storagePath ? "Fotka smazana z cloudu." : "Fotka smazana jen lokalne.");
     return;
   }
 
@@ -2364,15 +2391,17 @@ async function resetAccountData() {
   if (!confirm("Posledni kontrola: data se smazi z cloudu i z tohoto zarizeni.")) return;
 
   const userId = cloud.session.user.id;
-  const [workoutResult, nutritionResult] = await Promise.all([
+  const [workoutResult, nutritionResult, photoResult] = await Promise.allSettled([
     cloud.client.from("workout_days").delete().eq("user_id", userId),
-    cloud.client.from("nutrition_weeks").delete().eq("user_id", userId)
+    cloud.client.from("nutrition_weeks").delete().eq("user_id", userId),
+    deleteAllCloudPhasePhotos()
   ]);
 
-  const error = workoutResult.error || nutritionResult.error;
-  if (error) {
-    console.warn(error);
-    showCloudError("Data se nepodarilo vymazat.", error);
+  const error = workoutResult.value?.error || nutritionResult.value?.error || photoResult.reason;
+  if (workoutResult.status === "rejected" || nutritionResult.status === "rejected" || error) {
+    const thrownError = workoutResult.reason || nutritionResult.reason || error;
+    console.warn(thrownError);
+    showCloudError("Data se nepodarilo vymazat.", thrownError);
     return;
   }
 
@@ -2392,13 +2421,18 @@ async function resetNutritionData() {
   if (!confirm("Posledni kontrola: smaze se nutrition cloud i lokalni nutrition na tomhle uctu.")) return;
 
   if (cloud.client && cloud.session) {
-    const { error } = await cloud.client
-      .from("nutrition_weeks")
-      .delete()
-      .eq("user_id", cloud.session.user.id);
-    if (error) {
-      console.warn(error);
-      showCloudError("Nutrition data se nepodarilo vymazat.", error);
+    const [nutritionResult, photoResult] = await Promise.allSettled([
+      cloud.client
+        .from("nutrition_weeks")
+        .delete()
+        .eq("user_id", cloud.session.user.id),
+      deleteAllCloudPhasePhotos()
+    ]);
+    const error = nutritionResult.value?.error || photoResult.reason;
+    if (nutritionResult.status === "rejected" || error) {
+      const thrownError = nutritionResult.reason || error;
+      console.warn(thrownError);
+      showCloudError("Nutrition data se nepodarilo vymazat.", thrownError);
       return;
     }
   }
@@ -2751,28 +2785,138 @@ async function handlePhasePhotoImport(event) {
   if (!row) return;
 
   try {
+    const syncToCloud = Boolean(cloud.client && cloud.session);
+    if (syncToCloud) await saveNutritionToCloud();
     const photos = [];
     for (const file of imageFiles) {
-      photos.push(await createCompressedPhasePhoto(file));
+      const photo = syncToCloud
+        ? await uploadCloudPhasePhoto(row, file)
+        : await createCompressedPhasePhoto(file);
+      photos.push(photo);
     }
-    row.photos = [...normalizePhasePhotos(row.photos), ...photos].slice(-12);
+    row.photos = [...normalizePhasePhotos(row.photos), ...photos].slice(-PHASE_PHOTO_LIMIT);
     openPhasePhotoRows.add(rowId);
     saveLocal();
     render();
-    showToast(formatPhotoSaveMessage(photos.length));
+    showToast(formatPhotoSaveMessage(photos.length, syncToCloud));
   } catch (error) {
     console.warn(error);
-    showToast("Fotku se nepodarilo nacist.");
+    showCloudError("Fotku se nepodarilo ulozit.", error);
   }
 }
 
-function formatPhotoSaveMessage(count) {
-  if (count === 1) return "Fotka ulozena lokalne.";
-  if (count > 1 && count < 5) return `${count} fotky ulozeny lokalne.`;
-  return `${count} fotek ulozeno lokalne.`;
+function formatPhotoSaveMessage(count, synced) {
+  const suffix = synced ? "do cloudu" : "lokalne";
+  if (count === 1) return `Fotka ulozena ${suffix}.`;
+  if (count > 1 && count < 5) return `${count} fotky ulozeny ${suffix}.`;
+  return `${count} fotek ulozeno ${suffix}.`;
 }
 
 async function createCompressedPhasePhoto(file) {
+  const prepared = await prepareCompressedPhasePhoto(file);
+  return {
+    id: prepared.id,
+    name: prepared.name,
+    addedAt: prepared.addedAt,
+    dataUrl: prepared.dataUrl,
+    url: "",
+    storagePath: "",
+    cloudId: "",
+    width: prepared.width,
+    height: prepared.height
+  };
+}
+
+async function uploadCloudPhasePhoto(row, file) {
+  if (!cloud.client || !cloud.session) throw new Error("Nejdriv se prihlas.");
+  const prepared = await prepareCompressedPhasePhoto(file);
+  const objectId = uid();
+  const storagePath = `${cloud.session.user.id}/${row.id}/${Date.now()}-${objectId}.jpg`;
+  const bucket = cloud.client.storage.from(PHASE_PHOTO_BUCKET);
+  const { error: uploadError } = await bucket.upload(storagePath, prepared.blob, {
+    cacheControl: "31536000",
+    contentType: "image/jpeg",
+    upsert: false
+  });
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await cloud.client
+    .from("progress_photos")
+    .insert({
+      user_id: cloud.session.user.id,
+      phase_row_id: row.id,
+      week_label: row.weekLabel || "",
+      storage_path: storagePath,
+      file_name: prepared.name,
+      width: prepared.width,
+      height: prepared.height,
+      file_size: prepared.blob.size,
+      content_type: "image/jpeg"
+    })
+    .select("id,user_id,phase_row_id,week_label,storage_path,file_name,width,height,created_at")
+    .single();
+
+  if (error) {
+    await bucket.remove([storagePath]);
+    throw error;
+  }
+
+  const { data: signed, error: signedError } = await bucket.createSignedUrl(storagePath, PHASE_PHOTO_SIGNED_URL_SECONDS);
+  if (signedError) throw signedError;
+  return cloudPhasePhotoFromRow(data, signed?.signedUrl || "");
+}
+
+async function deleteCloudPhasePhoto(photo) {
+  if (!cloud.client || !cloud.session || !photo.storagePath) return;
+  const storageResult = await cloud.client
+    .storage
+    .from(PHASE_PHOTO_BUCKET)
+    .remove([photo.storagePath]);
+  if (storageResult.error) throw storageResult.error;
+
+  let query = cloud.client
+    .from("progress_photos")
+    .delete()
+    .eq("user_id", cloud.session.user.id);
+  if (photo.cloudId) {
+    query = query.eq("id", photo.cloudId);
+  } else {
+    query = query.eq("storage_path", photo.storagePath);
+  }
+  const { error } = await query;
+  if (error) throw error;
+}
+
+async function deleteAllCloudPhasePhotos() {
+  if (!cloud.client || !cloud.session) return null;
+  const userId = cloud.session.user.id;
+  const { data, error: listError } = await cloud.client
+    .from("progress_photos")
+    .select("storage_path")
+    .eq("user_id", userId);
+  if (listError) {
+    if (listError.code === "42P01") return null;
+    throw listError;
+  }
+
+  const paths = (data || []).map((photo) => photo.storage_path).filter(Boolean);
+  if (paths.length) {
+    const { error: storageError } = await cloud.client
+      .storage
+      .from(PHASE_PHOTO_BUCKET)
+      .remove(paths);
+    if (storageError) throw storageError;
+  }
+
+  const { error } = await cloud.client
+    .from("progress_photos")
+    .delete()
+    .eq("user_id", userId);
+  if (error) throw error;
+  return paths.length;
+}
+
+async function prepareCompressedPhasePhoto(file) {
   const dataUrl = await readFileAsDataUrl(file);
   const image = await loadImageFromDataUrl(dataUrl);
   const maxSide = 1200;
@@ -2784,14 +2928,22 @@ async function createCompressedPhasePhoto(file) {
   canvas.height = height;
   const context = canvas.getContext("2d");
   context.drawImage(image, 0, 0, width, height);
+  const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.78);
+  const blob = await dataUrlToBlob(compressedDataUrl);
   return {
     id: uid(),
     name: file.name,
     addedAt: new Date().toISOString(),
-    dataUrl: canvas.toDataURL("image/jpeg", 0.78),
+    dataUrl: compressedDataUrl,
+    blob,
     width,
     height
   };
+}
+
+async function dataUrlToBlob(dataUrl) {
+  const response = await fetch(dataUrl);
+  return response.blob();
 }
 
 function readFileAsDataUrl(file) {
@@ -2899,12 +3051,95 @@ async function loadCloudNutritionWeek() {
   if (!data) {
     const localNutrition = ensureNutritionWeek();
     if (hasNutritionData(localNutrition)) await saveNutritionToCloud();
+    await loadCloudPhasePhotos();
     return;
   }
   if (data.payload?.phase && !hasNutritionPhaseData(state.nutritionPhase)) {
     state.nutritionPhase = mergePhasePhotos(normalizeNutritionPhase(data.payload.phase), state.nutritionPhase);
   }
   state.nutrition[state.weekStart] = normalizeNutritionWeek(data.payload);
+  await loadCloudPhasePhotos();
+}
+
+async function loadCloudPhasePhotos() {
+  if (!cloud.client || !cloud.session) return;
+  const { data, error } = await cloud.client
+    .from("progress_photos")
+    .select("id,user_id,phase_row_id,week_label,storage_path,file_name,width,height,created_at")
+    .eq("user_id", cloud.session.user.id)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    if (error.code !== "42P01") console.warn(error);
+    return;
+  }
+
+  const photos = await Promise.all((data || []).map(async (record) => {
+    const { data: signed, error: signedError } = await cloud.client
+      .storage
+      .from(PHASE_PHOTO_BUCKET)
+      .createSignedUrl(record.storage_path, PHASE_PHOTO_SIGNED_URL_SECONDS);
+    if (signedError) {
+      console.warn(signedError);
+      return null;
+    }
+    return cloudPhasePhotoFromRow(record, signed?.signedUrl || "");
+  }));
+
+  attachCloudPhasePhotos(photos.filter(Boolean));
+}
+
+function attachCloudPhasePhotos(photos) {
+  const byRowId = new Map();
+  const byWeekLabel = new Map();
+  photos.forEach((photo) => {
+    if (photo.phaseRowId) {
+      const items = byRowId.get(photo.phaseRowId) || [];
+      items.push(photo);
+      byRowId.set(photo.phaseRowId, items);
+    }
+    if (photo.weekLabel) {
+      const items = byWeekLabel.get(photo.weekLabel) || [];
+      items.push(photo);
+      byWeekLabel.set(photo.weekLabel, items);
+    }
+  });
+
+  state.nutritionPhase.rows = state.nutritionPhase.rows.map((row) => {
+    const localPhotos = normalizePhasePhotos(row.photos).filter((photo) => !photo.storagePath);
+    const cloudPhotos = byRowId.get(row.id) || byWeekLabel.get(row.weekLabel) || [];
+    return {
+      ...row,
+      photos: mergePhasePhotoLists(localPhotos, cloudPhotos)
+    };
+  });
+}
+
+function mergePhasePhotoLists(localPhotos, cloudPhotos) {
+  const merged = new Map();
+  [...localPhotos, ...cloudPhotos].forEach((photo) => {
+    const key = photo.cloudId || photo.storagePath || photo.id;
+    merged.set(key, photo);
+  });
+  return [...merged.values()]
+    .sort((a, b) => new Date(a.addedAt) - new Date(b.addedAt))
+    .slice(-PHASE_PHOTO_LIMIT);
+}
+
+function cloudPhasePhotoFromRow(record, url) {
+  return {
+    id: record.id || uid(),
+    cloudId: record.id || "",
+    phaseRowId: record.phase_row_id || "",
+    weekLabel: record.week_label || "",
+    name: record.file_name || "Posing photo",
+    addedAt: record.created_at || new Date().toISOString(),
+    dataUrl: "",
+    url,
+    storagePath: record.storage_path || "",
+    width: toNumber(record.width, 0),
+    height: toNumber(record.height, 0)
+  };
 }
 
 async function loadSocialData() {
@@ -3584,9 +3819,15 @@ function showToast(message) {
 }
 
 function showCloudError(prefix, error) {
-  const message = error?.code === "PGRST205"
-    ? `${prefix} V Supabase chybi tabulka. Spust SQL patch.`
-    : `${prefix} ${error?.message || ""}`.trim();
+  const rawMessage = String(error?.message || "");
+  const lowerMessage = rawMessage.toLowerCase();
+  const needsSqlPatch = ["PGRST205", "42P01"].includes(error?.code) ||
+    lowerMessage.includes("bucket not found") ||
+    lowerMessage.includes("row-level security") ||
+    lowerMessage.includes("violates row-level security");
+  const message = needsSqlPatch
+    ? `${prefix} V Supabase chybi Storage patch. Spust supabase-progress-photos.sql.`
+    : `${prefix} ${rawMessage}`.trim();
   showToast(message);
 }
 
