@@ -517,6 +517,7 @@ function createNutritionPhaseRow(index) {
   return {
     id: uid(),
     weekLabel: `Tyden ${index}`,
+    date: "",
     calories: "",
     weight: "",
     note: "",
@@ -566,6 +567,7 @@ function normalizeNutritionPhase(phase) {
   const normalizedRows = rows.map((row, index) => ({
     id: row.id || uid(),
     weekLabel: String(row.weekLabel || `Tyden ${index + 1}`),
+    date: String(row.date || ""),
     calories: normalizeOptionalNumber(row.calories),
     weight: normalizeOptionalNumber(row.weight),
     note: String(row.note || ""),
@@ -1119,6 +1121,7 @@ function renderNutritionPhase(phase) {
     <div class="phase-list">
       <div class="phase-row phase-row-head">
         <span>Tyden</span>
+        <span>Datum</span>
         <span>Kcal</span>
         <span>Vaha</span>
         <span>Poznamka</span>
@@ -1152,6 +1155,10 @@ function renderNutritionPhaseRow(row) {
         <label class="phase-row-field">
           <span>Tyden</span>
           <input class="input" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="weekLabel" value="${escapeAttr(row.weekLabel)}" placeholder="Tyden">
+        </label>
+        <label class="phase-row-field">
+          <span>Datum</span>
+          <input class="input" type="date" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="date" value="${escapeAttr(row.date)}">
         </label>
         <label class="phase-row-field">
           <span>Kcal</span>
@@ -3792,6 +3799,7 @@ function hasNutritionPhaseData(phaseValue) {
   const phase = normalizeNutritionPhase(phaseValue);
   return Boolean(phase.title || phase.goalWeight) || phase.mode !== "diet" || phase.rows.some((row, index) => (
     row.weekLabel !== `Tyden ${index + 1}` ||
+    row.date !== "" ||
     row.calories !== "" ||
     row.weight !== "" ||
     row.note.trim()
