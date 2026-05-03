@@ -1005,7 +1005,7 @@ button.cloud-badge:hover {
 
 .phase-entry {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .phase-row {
@@ -1040,9 +1040,11 @@ button.cloud-badge:hover {
 }
 
 .phase-photo-panel {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--field-bg);
+  justify-self: start;
+  min-width: min(100%, 360px);
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--field-bg) 52%, transparent);
   overflow: hidden;
 }
 
@@ -1050,10 +1052,12 @@ button.cloud-badge:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  color: var(--ink);
+  gap: 10px;
+  padding: 6px 9px;
+  color: var(--muted);
   cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 750;
   list-style: none;
 }
 
@@ -1062,57 +1066,160 @@ button.cloud-badge:hover {
 }
 
 .phase-photo-panel summary strong {
-  color: var(--muted);
-  font-size: 0.78rem;
+  color: var(--teal);
+  font-size: 0.72rem;
+  font-weight: 850;
 }
 
 .phase-photo-tools {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 0 12px 12px;
-  border-top: 1px solid var(--line);
+  gap: 8px;
+  padding: 6px 8px 8px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+.phase-photo-tools .btn {
+  min-height: 30px;
+  padding-inline: 9px;
+}
+
+.phase-photo-tools .microcopy {
+  font-size: 0.76rem;
 }
 
 .phase-photo-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 10px;
-  padding: 0 12px 12px;
+  grid-template-columns: repeat(auto-fill, 52px);
+  justify-content: start;
+  gap: 6px;
+  padding: 0 8px 8px;
 }
 
 .phase-photo-card {
   display: grid;
-  gap: 8px;
+  gap: 4px;
   margin: 0;
-  padding: 8px;
+  padding: 4px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--control);
 }
 
-.phase-photo-card img {
+.phase-photo-thumb {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.phase-photo-thumb img {
   width: 100%;
   aspect-ratio: 3 / 4;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: 4px;
   background: var(--surface);
+  display: block;
 }
 
 .phase-photo-card figcaption {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.58rem;
+  min-width: 0;
+}
+
+.phase-photo-card figcaption span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phase-photo-card .icon-btn {
+  width: 20px;
+  min-height: 20px;
+  border-radius: 5px;
+  font-size: 0.66rem;
+  flex: 0 0 auto;
+}
+
+.phase-photo-empty {
+  padding: 0 8px 8px;
   color: var(--muted);
   font-size: 0.78rem;
 }
 
-.phase-photo-empty {
-  padding: 0 12px 12px;
+.photo-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.photo-viewer-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.photo-viewer-panel {
+  position: relative;
+  width: min(920px, 100%);
+  max-height: calc(100vh - 40px);
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+
+.photo-viewer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.photo-viewer-head strong,
+.photo-viewer-head span {
+  display: block;
+}
+
+.photo-viewer-head span {
+  margin-top: 2px;
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
+}
+
+.photo-viewer-stage {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.photo-viewer-stage img {
+  width: 100%;
+  max-height: calc(100vh - 150px);
+  object-fit: contain;
+  border-radius: 8px;
+  background: var(--field-bg);
+}
+
+.photo-nav {
+  width: 44px;
+  min-height: 64px;
 }
 
 .nutrition-table {
@@ -1839,7 +1946,29 @@ button.cloud-badge:hover {
   }
 
   .phase-photo-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(6, 44px);
+  }
+
+  .photo-viewer {
+    padding: 10px;
+  }
+
+  .photo-viewer-panel {
+    max-height: calc(100vh - 20px);
+    padding: 10px;
+  }
+
+  .photo-viewer-stage {
+    grid-template-columns: 1fr;
+  }
+
+  .photo-nav {
+    width: 100%;
+    min-height: 38px;
+  }
+
+  .photo-viewer-stage img {
+    max-height: calc(100vh - 220px);
   }
 
   .phase-row-field span {

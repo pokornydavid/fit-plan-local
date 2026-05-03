@@ -43,6 +43,7 @@ let pendingSync = loadPendingSync();
 let flushingPendingSync = false;
 let feedLoadSeq = 0;
 let pendingPhasePhotoRowId = null;
+let phasePhotoViewer = null;
 let cloud = {
   ready: false,
   configured: false,
@@ -75,6 +76,7 @@ window.addEventListener("pointerup", handlePointerUp);
 window.addEventListener("pointercancel", cancelExerciseDrag);
 window.addEventListener("pagehide", handlePageHide);
 document.addEventListener("visibilitychange", handleVisibilityChange);
+document.addEventListener("keydown", handleKeyDown);
 importFile.addEventListener("change", handleImport);
 posingFile?.addEventListener("change", handlePhasePhotoImport);
 
@@ -771,6 +773,7 @@ function render() {
         </div>
       </header>
       ${content}
+      ${renderPhasePhotoViewer()}
     </div>
   `;
 }
@@ -1152,12 +1155,12 @@ function renderNutritionPhaseRow(row) {
       </div>
       <details class="phase-photo-panel">
         <summary>
-          <span>Posing fotky</span>
-          <strong>${photos.length ? `${photos.length} fotek` : "Bez fotek"}</strong>
+          <span>Fotky formy</span>
+          <strong>${photos.length ? `${photos.length}x` : "+"}</strong>
         </summary>
         <div class="phase-photo-tools">
           <button class="btn compact" data-action="add-phase-photo" data-row-id="${row.id}">+ Fotka</button>
-          <span class="microcopy">Uklada se jen lokalne na tomhle zarizeni, neposila se do Supabase.</span>
+          <span class="microcopy">Jen lokalne na tomhle zarizeni.</span>
         </div>
         ${photos.length ? `
           <div class="phase-photo-grid">
@@ -1174,12 +1177,42 @@ function renderNutritionPhaseRow(row) {
 function renderPhasePhoto(rowId, photo) {
   return `
     <figure class="phase-photo-card">
-      <img src="${escapeAttr(photo.dataUrl)}" alt="${escapeAttr(photo.name)}">
+      <button class="phase-photo-thumb" data-action="open-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" title="Otevrit fotku" aria-label="Otevrit fotku">
+        <img src="${escapeAttr(photo.dataUrl)}" alt="${escapeAttr(photo.name)}">
+      </button>
       <figcaption>
         <span>${escapeHtml(formatPhotoDate(photo.addedAt))}</span>
         <button class="icon-btn danger" data-action="remove-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" title="Smazat fotku" aria-label="Smazat fotku">x</button>
       </figcaption>
     </figure>
+  `;
+}
+
+function renderPhasePhotoViewer() {
+  if (!phasePhotoViewer) return "";
+  const row = findNutritionPhaseRow(phasePhotoViewer.rowId);
+  const photos = normalizePhasePhotos(row?.photos);
+  const index = photos.findIndex((photo) => photo.id === phasePhotoViewer.photoId);
+  if (!row || index < 0) return "";
+  const photo = photos[index];
+  return `
+    <div class="photo-viewer" role="dialog" aria-modal="true" aria-label="Posing fotka">
+      <button class="photo-viewer-backdrop" data-action="close-phase-photo" aria-label="Zavrit galerii"></button>
+      <div class="photo-viewer-panel">
+        <div class="photo-viewer-head">
+          <div>
+            <strong>${escapeHtml(row.weekLabel || "Tyden")}</strong>
+            <span>${index + 1}/${photos.length} - ${escapeHtml(formatPhotoDate(photo.addedAt))}</span>
+          </div>
+          <button class="icon-btn" data-action="close-phase-photo" title="Zavrit" aria-label="Zavrit">x</button>
+        </div>
+        <div class="photo-viewer-stage">
+          <button class="icon-btn photo-nav" data-action="prev-phase-photo" title="Predchozi fotka" aria-label="Predchozi fotka" ${photos.length <= 1 ? "disabled" : ""}>&lt;</button>
+          <img src="${escapeAttr(photo.dataUrl)}" alt="${escapeAttr(photo.name)}">
+          <button class="icon-btn photo-nav" data-action="next-phase-photo" title="Dalsi fotka" aria-label="Dalsi fotka" ${photos.length <= 1 ? "disabled" : ""}>&gt;</button>
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -1883,10 +1916,34 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "open-phase-photo") {
+    phasePhotoViewer = {
+      rowId: target.dataset.rowId,
+      photoId: target.dataset.photoId
+    };
+    render();
+    return;
+  }
+
+  if (action === "close-phase-photo") {
+    phasePhotoViewer = null;
+    render();
+    return;
+  }
+
+  if (action === "prev-phase-photo" || action === "next-phase-photo") {
+    movePhasePhotoViewer(action === "prev-phase-photo" ? -1 : 1);
+    render();
+    return;
+  }
+
   if (action === "remove-phase-photo") {
     const row = findNutritionPhaseRow(target.dataset.rowId);
     if (!row) return;
     row.photos = normalizePhasePhotos(row.photos).filter((photo) => photo.id !== target.dataset.photoId);
+    if (phasePhotoViewer?.rowId === target.dataset.rowId && phasePhotoViewer?.photoId === target.dataset.photoId) {
+      phasePhotoViewer = null;
+    }
     saveLocal();
     render();
     showToast("Fotka smazana jen lokalne.");
@@ -2480,6 +2537,24 @@ function handleVisibilityChange() {
   if (document.visibilityState !== "hidden") return;
   saveLocal();
   runPendingSyncNow("Neulozene zmeny se nepodarilo dosynchronizovat.");
+}
+
+function handleKeyDown(event) {
+  if (!phasePhotoViewer) return;
+  if (event.key === "Escape") {
+    phasePhotoViewer = null;
+    render();
+    return;
+  }
+  if (event.key === "ArrowLeft") {
+    movePhasePhotoViewer(-1);
+    render();
+    return;
+  }
+  if (event.key === "ArrowRight") {
+    movePhasePhotoViewer(1);
+    render();
+  }
 }
 
 function handlePointerDown(event) {
@@ -3225,6 +3300,19 @@ function updateNutritionPhaseRow(input) {
 function findNutritionPhaseRow(rowId) {
   if (!rowId) return null;
   return state.nutritionPhase.rows.find((item) => item.id === rowId) || null;
+}
+
+function movePhasePhotoViewer(offset) {
+  if (!phasePhotoViewer) return;
+  const row = findNutritionPhaseRow(phasePhotoViewer.rowId);
+  const photos = normalizePhasePhotos(row?.photos);
+  if (photos.length <= 1) return;
+  const index = photos.findIndex((photo) => photo.id === phasePhotoViewer.photoId);
+  const nextIndex = (Math.max(0, index) + offset + photos.length) % photos.length;
+  phasePhotoViewer = {
+    rowId: phasePhotoViewer.rowId,
+    photoId: photos[nextIndex].id
+  };
 }
 
 function addLibraryExercise(id) {
