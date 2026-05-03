@@ -42,6 +42,7 @@ let exerciseDrag = null;
 let pendingSync = loadPendingSync();
 let flushingPendingSync = false;
 let feedLoadSeq = 0;
+let pendingPhasePhotoRowId = null;
 let cloud = {
   ready: false,
   configured: false,
@@ -61,6 +62,7 @@ let cloud = {
 const app = document.querySelector("#app");
 const toast = document.querySelector("#toast");
 const importFile = document.querySelector("#importFile");
+const posingFile = document.querySelector("#posingFile");
 
 app.addEventListener("click", handleClick);
 app.addEventListener("input", handleInput);
@@ -74,6 +76,7 @@ window.addEventListener("pointercancel", cancelExerciseDrag);
 window.addEventListener("pagehide", handlePageHide);
 document.addEventListener("visibilitychange", handleVisibilityChange);
 importFile.addEventListener("change", handleImport);
+posingFile?.addEventListener("change", handlePhasePhotoImport);
 
 boot();
 
@@ -509,7 +512,8 @@ function createNutritionPhaseRow(index) {
     weekLabel: `Tyden ${index}`,
     calories: "",
     weight: "",
-    note: ""
+    note: "",
+    photos: []
   };
 }
 
@@ -557,7 +561,8 @@ function normalizeNutritionPhase(phase) {
     weekLabel: String(row.weekLabel || `Tyden ${index + 1}`),
     calories: normalizeOptionalNumber(row.calories),
     weight: normalizeOptionalNumber(row.weight),
-    note: String(row.note || "")
+    note: String(row.note || ""),
+    photos: normalizePhasePhotos(row.photos)
   }));
   while (normalizedRows.length < DEFAULT_PHASE_WEEKS) {
     normalizedRows.push(createNutritionPhaseRow(normalizedRows.length + 1));
@@ -568,6 +573,42 @@ function normalizeNutritionPhase(phase) {
     mode: ["diet", "bulk", "maintain"].includes(phase?.mode) ? phase.mode : "diet",
     goalWeight: normalizeOptionalNumber(phase?.goalWeight),
     rows: normalizedRows
+  };
+}
+
+function normalizePhasePhotos(photos) {
+  if (!Array.isArray(photos)) return [];
+  return photos
+    .filter((photo) => photo?.dataUrl)
+    .slice(0, 12)
+    .map((photo) => ({
+      id: photo.id || uid(),
+      name: String(photo.name || "Posing photo"),
+      addedAt: photo.addedAt || new Date().toISOString(),
+      dataUrl: String(photo.dataUrl),
+      width: toNumber(photo.width, 0),
+      height: toNumber(photo.height, 0)
+    }));
+}
+
+function stripPhasePhotosForCloud(phase) {
+  const normalized = normalizeNutritionPhase(phase);
+  return {
+    ...normalized,
+    rows: normalized.rows.map(({ photos, ...row }) => row)
+  };
+}
+
+function mergePhasePhotos(targetPhase, sourcePhase) {
+  const sourceRows = normalizeNutritionPhase(sourcePhase).rows;
+  const photosById = new Map(sourceRows.map((row) => [row.id, row.photos]));
+  const photosByLabel = new Map(sourceRows.map((row) => [row.weekLabel, row.photos]));
+  return {
+    ...targetPhase,
+    rows: targetPhase.rows.map((row) => ({
+      ...row,
+      photos: normalizePhasePhotos(photosById.get(row.id) || photosByLabel.get(row.weekLabel) || row.photos)
+    }))
   };
 }
 
@@ -1087,26 +1128,58 @@ function renderPhaseModeOptions(selected) {
 }
 
 function renderNutritionPhaseRow(row) {
+  const photos = normalizePhasePhotos(row.photos);
   return `
-    <div class="phase-row">
-      <label class="phase-row-field">
-        <span>Tyden</span>
-        <input class="input" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="weekLabel" value="${escapeAttr(row.weekLabel)}" placeholder="Tyden">
-      </label>
-      <label class="phase-row-field">
-        <span>Kcal</span>
-        <input class="input" type="number" min="0" step="50" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="calories" value="${escapeAttr(row.calories)}" placeholder="2300">
-      </label>
-      <label class="phase-row-field">
-        <span>Vaha</span>
-        <input class="input" type="number" min="0" step="0.1" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="weight" value="${escapeAttr(row.weight)}" placeholder="85.5">
-      </label>
-      <label class="phase-row-field">
-        <span>Poznamka</span>
-        <input class="input" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="note" value="${escapeAttr(row.note)}" placeholder="Poznamka">
-      </label>
-      <button class="icon-btn danger" data-action="remove-phase-row" data-row-id="${row.id}" title="Smazat tyden" aria-label="Smazat tyden">x</button>
+    <div class="phase-entry">
+      <div class="phase-row">
+        <label class="phase-row-field">
+          <span>Tyden</span>
+          <input class="input" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="weekLabel" value="${escapeAttr(row.weekLabel)}" placeholder="Tyden">
+        </label>
+        <label class="phase-row-field">
+          <span>Kcal</span>
+          <input class="input" type="number" min="0" step="50" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="calories" value="${escapeAttr(row.calories)}" placeholder="2300">
+        </label>
+        <label class="phase-row-field">
+          <span>Vaha</span>
+          <input class="input" type="number" min="0" step="0.1" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="weight" value="${escapeAttr(row.weight)}" placeholder="85.5">
+        </label>
+        <label class="phase-row-field">
+          <span>Poznamka</span>
+          <input class="input" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="note" value="${escapeAttr(row.note)}" placeholder="Poznamka">
+        </label>
+        <button class="icon-btn danger" data-action="remove-phase-row" data-row-id="${row.id}" title="Smazat tyden" aria-label="Smazat tyden">x</button>
+      </div>
+      <details class="phase-photo-panel">
+        <summary>
+          <span>Posing fotky</span>
+          <strong>${photos.length ? `${photos.length} fotek` : "Bez fotek"}</strong>
+        </summary>
+        <div class="phase-photo-tools">
+          <button class="btn compact" data-action="add-phase-photo" data-row-id="${row.id}">+ Fotka</button>
+          <span class="microcopy">Uklada se jen lokalne na tomhle zarizeni, neposila se do Supabase.</span>
+        </div>
+        ${photos.length ? `
+          <div class="phase-photo-grid">
+            ${photos.map((photo) => renderPhasePhoto(row.id, photo)).join("")}
+          </div>
+        ` : `
+          <div class="phase-photo-empty">Rozklikni tyden a pridej fotku pro porovnani formy.</div>
+        `}
+      </details>
     </div>
+  `;
+}
+
+function renderPhasePhoto(rowId, photo) {
+  return `
+    <figure class="phase-photo-card">
+      <img src="${escapeAttr(photo.dataUrl)}" alt="${escapeAttr(photo.name)}">
+      <figcaption>
+        <span>${escapeHtml(formatPhotoDate(photo.addedAt))}</span>
+        <button class="icon-btn danger" data-action="remove-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" title="Smazat fotku" aria-label="Smazat fotku">x</button>
+      </figcaption>
+    </figure>
   `;
 }
 
@@ -1797,6 +1870,26 @@ async function handleClick(event) {
     }
     save();
     render();
+    return;
+  }
+
+  if (action === "add-phase-photo") {
+    pendingPhasePhotoRowId = target.dataset.rowId;
+    if (!posingFile) {
+      showToast("Vyber fotky tady neni dostupny.");
+      return;
+    }
+    posingFile.click();
+    return;
+  }
+
+  if (action === "remove-phase-photo") {
+    const row = findNutritionPhaseRow(target.dataset.rowId);
+    if (!row) return;
+    row.photos = normalizePhasePhotos(row.photos).filter((photo) => photo.id !== target.dataset.photoId);
+    saveLocal();
+    render();
+    showToast("Fotka smazana jen lokalne.");
     return;
   }
 
@@ -2535,6 +2628,72 @@ function handleImport(event) {
   reader.readAsText(file);
 }
 
+async function handlePhasePhotoImport(event) {
+  const file = event.target.files?.[0];
+  const rowId = pendingPhasePhotoRowId;
+  pendingPhasePhotoRowId = null;
+  if (posingFile) posingFile.value = "";
+  if (!file || !rowId) return;
+  if (!file.type.startsWith("image/")) {
+    showToast("Vyber prosim obrazek.");
+    return;
+  }
+
+  const row = findNutritionPhaseRow(rowId);
+  if (!row) return;
+
+  try {
+    const photo = await createCompressedPhasePhoto(file);
+    row.photos = [...normalizePhasePhotos(row.photos), photo].slice(-12);
+    saveLocal();
+    render();
+    showToast("Fotka ulozena lokalne.");
+  } catch (error) {
+    console.warn(error);
+    showToast("Fotku se nepodarilo nacist.");
+  }
+}
+
+async function createCompressedPhasePhoto(file) {
+  const dataUrl = await readFileAsDataUrl(file);
+  const image = await loadImageFromDataUrl(dataUrl);
+  const maxSide = 1200;
+  const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.drawImage(image, 0, 0, width, height);
+  return {
+    id: uid(),
+    name: file.name,
+    addedAt: new Date().toISOString(),
+    dataUrl: canvas.toDataURL("image/jpeg", 0.78),
+    width,
+    height
+  };
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Image read failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImageFromDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Image load failed"));
+    image.src = dataUrl;
+  });
+}
+
 async function ensureProfile() {
   if (!cloud.client || !cloud.session) return;
   const user = cloud.session.user;
@@ -2625,7 +2784,7 @@ async function loadCloudNutritionWeek() {
     return;
   }
   if (data.payload?.phase && !hasNutritionPhaseData(state.nutritionPhase)) {
-    state.nutritionPhase = normalizeNutritionPhase(data.payload.phase);
+    state.nutritionPhase = mergePhasePhotos(normalizeNutritionPhase(data.payload.phase), state.nutritionPhase);
   }
   state.nutrition[state.weekStart] = normalizeNutritionWeek(data.payload);
 }
@@ -2943,7 +3102,7 @@ async function saveNutritionWeekToCloud(weekStart, expectedPendingUpdatedAt = nu
       week_start: weekStart,
       payload: {
         ...nutrition,
-        phase: normalizeNutritionPhase(state.nutritionPhase)
+        phase: stripPhasePhotosForCloud(state.nutritionPhase)
       },
       calories: summary.totalCalories,
       protein: summary.totalProtein,
@@ -3055,13 +3214,17 @@ function updateNutritionPhase(input) {
 }
 
 function updateNutritionPhaseRow(input) {
-  const phase = state.nutritionPhase;
-  const row = phase.rows.find((item) => item.id === input.dataset.rowId);
+  const row = findNutritionPhaseRow(input.dataset.rowId);
   const field = input.dataset.phaseRow;
   if (!row || !field) return;
   row[field] = ["calories", "weight"].includes(field)
     ? normalizeOptionalNumber(input.value)
     : input.value;
+}
+
+function findNutritionPhaseRow(rowId) {
+  if (!rowId) return null;
+  return state.nutritionPhase.rows.find((item) => item.id === rowId) || null;
 }
 
 function addLibraryExercise(id) {
@@ -3351,6 +3514,15 @@ function formatCloudDate(value) {
     month: "numeric",
     hour: "2-digit",
     minute: "2-digit"
+  }).format(new Date(value));
+}
+
+function formatPhotoDate(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("cs-CZ", {
+    day: "numeric",
+    month: "numeric",
+    year: "numeric"
   }).format(new Date(value));
 }
 
