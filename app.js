@@ -5,6 +5,7 @@ const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const CLOUD_INIT_TIMEOUT_MS = 7000;
 const DEFAULT_PHASE_WEEKS = 16;
+const NUTRITION_PHASE_WEEK_START = "1970-01-05";
 const PHASE_PHOTO_BUCKET = "progress-photos";
 const PHASE_PHOTO_LIMIT = 12;
 const PHASE_PHOTO_SIGNED_URL_SECONDS = 60 * 60 * 24 * 7;
@@ -2918,6 +2919,52 @@ function replacePhasePhotoPreviews(rowId, previewIds, uploadedPhotos) {
   openPhasePhotoRows.add(rowId);
 }
 
+async function syncLocalPhasePhotosToCloud() {
+  if (!cloud.client || !cloud.session) return 0;
+  let uploadedCount = 0;
+
+  for (const row of state.nutritionPhase.rows) {
+    const localPhotos = normalizePhasePhotos(row.photos).filter((photo) => photo.dataUrl && !photo.storagePath);
+    if (!localPhotos.length) continue;
+
+    const uploadedPhotos = [];
+    const uploadedPreviewIds = [];
+    for (const photo of localPhotos) {
+      try {
+        const prepared = await preparePhasePhotoFromLocal(photo);
+        uploadedPhotos.push(await uploadPreparedCloudPhasePhoto(row, prepared));
+        uploadedPreviewIds.push(photo.id);
+      } catch (error) {
+        console.warn(error);
+      }
+    }
+
+    if (uploadedPhotos.length) {
+      replacePhasePhotoPreviews(row.id, uploadedPreviewIds, uploadedPhotos);
+      uploadedCount += uploadedPhotos.length;
+    }
+  }
+
+  if (uploadedCount) {
+    saveLocal();
+    showToast(`${uploadedCount} lokalni fotky doposlany do cloudu.`);
+  }
+  return uploadedCount;
+}
+
+async function preparePhasePhotoFromLocal(photo) {
+  const blob = await dataUrlToBlob(photo.dataUrl);
+  return {
+    id: photo.id || uid(),
+    name: photo.name || "Posing photo",
+    addedAt: photo.addedAt || new Date().toISOString(),
+    dataUrl: photo.dataUrl,
+    blob,
+    width: toNumber(photo.width, 0),
+    height: toNumber(photo.height, 0)
+  };
+}
+
 async function deleteCloudPhasePhoto(photo) {
   if (!cloud.client || !cloud.session || !photo.storagePath) return;
   let query = cloud.client
@@ -3103,14 +3150,41 @@ async function loadCloudNutritionWeek() {
   if (!data) {
     const localNutrition = ensureNutritionWeek();
     if (hasNutritionData(localNutrition)) await saveNutritionToCloud();
+    await loadCloudNutritionPhase();
     await loadCloudPhasePhotos();
+    await syncLocalPhasePhotosToCloud();
     return;
   }
-  if (data.payload?.phase) {
-    state.nutritionPhase = mergePhasePhotos(normalizeNutritionPhase(data.payload.phase), state.nutritionPhase);
-  }
   state.nutrition[state.weekStart] = normalizeNutritionWeek(data.payload);
+  await loadCloudNutritionPhase(data.payload?.phase);
   await loadCloudPhasePhotos();
+  await syncLocalPhasePhotosToCloud();
+}
+
+async function loadCloudNutritionPhase(fallbackPhase = null) {
+  if (!cloud.client || !cloud.session) return;
+  const { data, error } = await cloud.client
+    .from("nutrition_weeks")
+    .select("payload")
+    .eq("user_id", cloud.session.user.id)
+    .eq("week_start", NUTRITION_PHASE_WEEK_START)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(error);
+    if (fallbackPhase) {
+      state.nutritionPhase = mergePhasePhotos(normalizeNutritionPhase(fallbackPhase), state.nutritionPhase);
+    }
+    return;
+  }
+
+  const phase = data?.payload?.phase || fallbackPhase;
+  if (phase) {
+    state.nutritionPhase = mergePhasePhotos(normalizeNutritionPhase(phase), state.nutritionPhase);
+  }
+  if (!data && hasNutritionPhaseData(state.nutritionPhase)) {
+    await saveNutritionPhaseToCloud();
+  }
 }
 
 async function loadCloudPhasePhotos() {
@@ -3144,6 +3218,7 @@ async function loadCloudPhasePhotos() {
 function attachCloudPhasePhotos(photos) {
   const byRowId = new Map();
   const byWeekLabel = new Map();
+  const byWeekNumber = new Map();
   photos.forEach((photo) => {
     if (photo.phaseRowId) {
       const items = byRowId.get(photo.phaseRowId) || [];
@@ -3155,16 +3230,34 @@ function attachCloudPhasePhotos(photos) {
       items.push(photo);
       byWeekLabel.set(photo.weekLabel, items);
     }
+    const weekNumber = phaseWeekNumber(photo.weekLabel);
+    if (weekNumber !== null) {
+      const items = byWeekNumber.get(weekNumber) || [];
+      items.push(photo);
+      byWeekNumber.set(weekNumber, items);
+    }
   });
 
   state.nutritionPhase.rows = state.nutritionPhase.rows.map((row) => {
     const localPhotos = normalizePhasePhotos(row.photos).filter((photo) => !photo.storagePath);
-    const cloudPhotos = byRowId.get(row.id) || byWeekLabel.get(row.weekLabel) || [];
+    const cloudPhotos = [
+      ...(byRowId.get(row.id) || []),
+      ...(byWeekLabel.get(row.weekLabel) || []),
+      ...(byWeekNumber.get(phaseWeekNumber(row.weekLabel)) || [])
+    ];
     return {
       ...row,
       photos: mergePhasePhotoLists(localPhotos, cloudPhotos)
     };
   });
+}
+
+function phaseWeekNumber(label) {
+  const normalized = String(label || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const match = normalized.match(/\btyden\s*(\d+)/i);
+  return match ? Number(match[1]) : null;
 }
 
 function mergePhasePhotoLists(localPhotos, cloudPhotos) {
@@ -3494,6 +3587,11 @@ async function saveNutritionToCloud() {
 
 async function saveNutritionWeekToCloud(weekStart, expectedPendingUpdatedAt = null) {
   if (!cloud.client || !cloud.session) return;
+  if (weekStart === NUTRITION_PHASE_WEEK_START) {
+    await saveNutritionPhaseToCloud();
+    clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
+    return;
+  }
   const nutrition = state.nutrition[weekStart];
   if (!nutrition) {
     clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
@@ -3518,7 +3616,28 @@ async function saveNutritionWeekToCloud(weekStart, expectedPendingUpdatedAt = nu
     }, { onConflict: "user_id,week_start" });
 
   if (error) throw error;
+  await saveNutritionPhaseToCloud();
   clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
+}
+
+async function saveNutritionPhaseToCloud() {
+  if (!cloud.client || !cloud.session) return;
+  const { error } = await cloud.client
+    .from("nutrition_weeks")
+    .upsert({
+      user_id: cloud.session.user.id,
+      week_start: NUTRITION_PHASE_WEEK_START,
+      payload: {
+        phase: stripPhasePhotosForCloud(state.nutritionPhase)
+      },
+      calories: 0,
+      protein: 0,
+      carbs: 0,
+      fat: 0,
+      latest_weight: null,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "user_id,week_start" });
+  if (error) throw error;
 }
 
 function updateNutritionDay(input) {
