@@ -44,6 +44,7 @@ let flushingPendingSync = false;
 let feedLoadSeq = 0;
 let pendingPhasePhotoRowId = null;
 let phasePhotoViewer = null;
+const openPhasePhotoRows = new Set();
 let cloud = {
   ready: false,
   configured: false,
@@ -71,6 +72,7 @@ app.addEventListener("change", handleChange);
 app.addEventListener("submit", handleSubmit);
 app.addEventListener("focusout", handleFocusOut);
 app.addEventListener("pointerdown", handlePointerDown);
+app.addEventListener("toggle", handleToggle, true);
 window.addEventListener("pointermove", handlePointerMove);
 window.addEventListener("pointerup", handlePointerUp);
 window.addEventListener("pointercancel", cancelExerciseDrag);
@@ -1132,6 +1134,7 @@ function renderPhaseModeOptions(selected) {
 
 function renderNutritionPhaseRow(row) {
   const photos = normalizePhasePhotos(row.photos);
+  const isPhotoPanelOpen = openPhasePhotoRows.has(row.id);
   return `
     <div class="phase-entry">
       <div class="phase-row">
@@ -1153,13 +1156,13 @@ function renderNutritionPhaseRow(row) {
         </label>
         <button class="icon-btn danger" data-action="remove-phase-row" data-row-id="${row.id}" title="Smazat tyden" aria-label="Smazat tyden">x</button>
       </div>
-      <details class="phase-photo-panel">
+      <details class="phase-photo-panel" data-row-id="${row.id}" ${isPhotoPanelOpen ? "open" : ""}>
         <summary>
           <span>Fotky formy</span>
           <strong>${photos.length ? `${photos.length}x` : "+"}</strong>
         </summary>
         <div class="phase-photo-tools">
-          <button class="btn compact" data-action="add-phase-photo" data-row-id="${row.id}">+ Fotka</button>
+          <button class="btn compact" data-action="add-phase-photo" data-row-id="${row.id}">+ Fotky</button>
           <span class="microcopy">Jen lokalne na tomhle zarizeni.</span>
         </div>
         ${photos.length ? `
@@ -1730,6 +1733,18 @@ function renderVisibilityOptions(selected) {
   )).join("");
 }
 
+function handleToggle(event) {
+  const panel = event.target.closest?.(".phase-photo-panel");
+  if (!panel) return;
+  const rowId = panel.dataset.rowId;
+  if (!rowId) return;
+  if (panel.open) {
+    openPhasePhotoRows.add(rowId);
+  } else {
+    openPhasePhotoRows.delete(rowId);
+  }
+}
+
 async function handleClick(event) {
   const target = event.target.closest("[data-action]");
   if (!target) return;
@@ -1896,10 +1911,13 @@ async function handleClick(event) {
 
   if (action === "remove-phase-row") {
     const phase = state.nutritionPhase;
+    const rowId = target.dataset.rowId;
     if (phase.rows.length <= 1) {
       phase.rows = [createNutritionPhaseRow(1)];
+      openPhasePhotoRows.clear();
     } else {
-      phase.rows = phase.rows.filter((row) => row.id !== target.dataset.rowId);
+      phase.rows = phase.rows.filter((row) => row.id !== rowId);
+      openPhasePhotoRows.delete(rowId);
     }
     save();
     render();
@@ -1908,6 +1926,9 @@ async function handleClick(event) {
 
   if (action === "add-phase-photo") {
     pendingPhasePhotoRowId = target.dataset.rowId;
+    if (pendingPhasePhotoRowId) {
+      openPhasePhotoRows.add(pendingPhasePhotoRowId);
+    }
     if (!posingFile) {
       showToast("Vyber fotky tady neni dostupny.");
       return;
@@ -1938,11 +1959,22 @@ async function handleClick(event) {
   }
 
   if (action === "remove-phase-photo") {
-    const row = findNutritionPhaseRow(target.dataset.rowId);
+    const rowId = target.dataset.rowId;
+    const photoId = target.dataset.photoId;
+    const row = findNutritionPhaseRow(rowId);
     if (!row) return;
-    row.photos = normalizePhasePhotos(row.photos).filter((photo) => photo.id !== target.dataset.photoId);
-    if (phasePhotoViewer?.rowId === target.dataset.rowId && phasePhotoViewer?.photoId === target.dataset.photoId) {
-      phasePhotoViewer = null;
+    const previousPhotos = normalizePhasePhotos(row.photos);
+    const removedIndex = previousPhotos.findIndex((photo) => photo.id === photoId);
+    row.photos = previousPhotos.filter((photo) => photo.id !== photoId);
+    openPhasePhotoRows.add(rowId);
+    if (phasePhotoViewer?.rowId === rowId && phasePhotoViewer?.photoId === photoId) {
+      const nextPhotos = normalizePhasePhotos(row.photos);
+      phasePhotoViewer = nextPhotos.length
+        ? {
+            rowId,
+            photoId: nextPhotos[Math.min(Math.max(removedIndex, 0), nextPhotos.length - 1)].id
+          }
+        : null;
     }
     saveLocal();
     render();
@@ -2704,12 +2736,13 @@ function handleImport(event) {
 }
 
 async function handlePhasePhotoImport(event) {
-  const file = event.target.files?.[0];
+  const files = Array.from(event.target.files || []);
   const rowId = pendingPhasePhotoRowId;
   pendingPhasePhotoRowId = null;
   if (posingFile) posingFile.value = "";
-  if (!file || !rowId) return;
-  if (!file.type.startsWith("image/")) {
+  if (!files.length || !rowId) return;
+  const imageFiles = files.filter((file) => file.type.startsWith("image/")).slice(-12);
+  if (!imageFiles.length) {
     showToast("Vyber prosim obrazek.");
     return;
   }
@@ -2718,15 +2751,25 @@ async function handlePhasePhotoImport(event) {
   if (!row) return;
 
   try {
-    const photo = await createCompressedPhasePhoto(file);
-    row.photos = [...normalizePhasePhotos(row.photos), photo].slice(-12);
+    const photos = [];
+    for (const file of imageFiles) {
+      photos.push(await createCompressedPhasePhoto(file));
+    }
+    row.photos = [...normalizePhasePhotos(row.photos), ...photos].slice(-12);
+    openPhasePhotoRows.add(rowId);
     saveLocal();
     render();
-    showToast("Fotka ulozena lokalne.");
+    showToast(formatPhotoSaveMessage(photos.length));
   } catch (error) {
     console.warn(error);
     showToast("Fotku se nepodarilo nacist.");
   }
+}
+
+function formatPhotoSaveMessage(count) {
+  if (count === 1) return "Fotka ulozena lokalne.";
+  if (count > 1 && count < 5) return `${count} fotky ulozeny lokalne.`;
+  return `${count} fotek ulozeno lokalne.`;
 }
 
 async function createCompressedPhasePhoto(file) {
