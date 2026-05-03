@@ -1177,6 +1177,7 @@ button.cloud-badge:hover {
 
 .phase-photo-panel {
   justify-self: start;
+  width: min(100%, 520px);
   min-width: min(100%, 360px);
   border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
   border-radius: 6px;
@@ -1227,9 +1228,9 @@ button.cloud-badge:hover {
 
 .phase-photo-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(68px, 78px));
+  grid-template-columns: repeat(auto-fill, minmax(92px, 108px));
   justify-content: start;
-  gap: 6px;
+  gap: 8px;
   padding: 0 8px 8px;
 }
 
@@ -1263,12 +1264,12 @@ button.cloud-badge:hover {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
 }
 
 .photo-drag-handle {
-  min-width: 24px;
-  min-height: 24px;
+  min-width: 34px;
+  min-height: 30px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1282,7 +1283,7 @@ button.cloud-badge:hover {
 
 .photo-drag-handle span {
   color: var(--ink);
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 900;
   line-height: 1;
 }
@@ -1294,14 +1295,14 @@ button.cloud-badge:hover {
 .photo-move-controls {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 2px;
+  gap: 4px;
 }
 
 .photo-mini-move {
-  width: 18px;
-  min-height: 18px;
+  width: 26px;
+  min-height: 26px;
   border-radius: 4px;
-  font-size: 0.58rem;
+  font-size: 0.68rem;
   line-height: 1;
 }
 
@@ -1340,11 +1341,16 @@ button.cloud-badge:hover {
 }
 
 .phase-photo-card .icon-btn {
-  width: 20px;
-  min-height: 20px;
+  width: 24px;
+  min-height: 24px;
   border-radius: 5px;
   font-size: 0.66rem;
   flex: 0 0 auto;
+}
+
+.phase-photo-card .photo-mini-move {
+  width: 26px;
+  min-height: 26px;
 }
 
 .phase-photo-empty {
@@ -2137,29 +2143,12 @@ button.cloud-badge:hover {
 
   .phase-settings,
   .phase-summary,
-  .phase-compare-controls,
-  .phase-compare-stage.side,
   .phase-row {
     grid-template-columns: 1fr;
   }
 
   .phase-compare {
-    padding: 12px;
-  }
-
-  .phase-compare-head,
-  .phase-compare-mode {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .phase-compare-mode .btn {
-    width: 100%;
-  }
-
-  .compare-photo-panel img,
-  .compare-overlay img {
-    max-height: 360px;
+    display: none;
   }
 
   .phase-row {
@@ -2179,7 +2168,22 @@ button.cloud-badge:hover {
   }
 
   .phase-photo-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .phase-photo-panel {
+    width: 100%;
+  }
+
+  .photo-drag-handle {
+    min-height: 34px;
+  }
+
+  .photo-mini-move,
+  .phase-photo-card .photo-mini-move {
+    width: 30px;
+    min-height: 30px;
   }
 
   .photo-viewer {

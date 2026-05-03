@@ -1188,7 +1188,6 @@ function renderNutritionPhase(phase) {
       <div><strong>${summary.change === null ? "-" : `${summary.change > 0 ? "+" : ""}${formatNumber(summary.change)} kg`}</strong><span>Zmena od startu</span></div>
       <div><strong>${summary.goalGap === null ? "-" : `${summary.goalGap > 0 ? "+" : ""}${formatNumber(summary.goalGap)} kg`}</strong><span>Od goalu</span></div>
     </div>
-    ${renderPhaseCompare(phase)}
     <div class="phase-list">
       <div class="phase-row phase-row-head">
         <span>Tyden</span>
@@ -1200,6 +1199,7 @@ function renderNutritionPhase(phase) {
       </div>
       ${phase.rows.map((row) => renderNutritionPhaseRow(row)).join("")}
     </div>
+    ${renderPhaseCompare(phase)}
   `;
 }
 
@@ -1242,8 +1242,8 @@ function renderPhaseCompare(phase) {
           <span class="microcopy">Porovnani bere fotky podle poradi: pozice 1, 2, 3...</span>
         </div>
         <div class="phase-compare-mode">
-          <button class="btn compact ${phaseCompare.mode === "side" ? "primary" : ""}" data-action="set-compare-mode" data-mode="side">Vedle sebe</button>
-          <button class="btn compact ${phaseCompare.mode === "overlay" ? "primary" : ""}" data-action="set-compare-mode" data-mode="overlay" ${canOverlay ? "" : "disabled"}>Overlay</button>
+          <button class="btn compact ${phaseCompare.mode === "side" ? "primary" : ""}" type="button" data-action="set-compare-mode" data-mode="side">Vedle sebe</button>
+          <button class="btn compact ${phaseCompare.mode === "overlay" ? "primary" : ""}" type="button" data-action="set-compare-mode" data-mode="overlay" ${canOverlay ? "" : "disabled"}>Overlay</button>
         </div>
       </div>
       <div class="phase-compare-controls">
@@ -1275,9 +1275,9 @@ function renderPhaseCompare(phase) {
         ` : ""}
       </div>
       <div class="phase-compare-slots">
-        <button class="icon-btn" data-action="move-compare-slot" data-direction="-1" title="Predchozi pozice" aria-label="Predchozi pozice">&lt;</button>
+        <button class="icon-btn" type="button" data-action="move-compare-slot" data-direction="-1" title="Predchozi pozice" aria-label="Predchozi pozice">&lt;</button>
         <strong>Pozice ${selection.slotIndex + 1}/${maxSlots}</strong>
-        <button class="icon-btn" data-action="move-compare-slot" data-direction="1" title="Dalsi pozice" aria-label="Dalsi pozice">&gt;</button>
+        <button class="icon-btn" type="button" data-action="move-compare-slot" data-direction="1" title="Dalsi pozice" aria-label="Dalsi pozice">&gt;</button>
       </div>
       ${phaseCompare.mode === "overlay" && canOverlay
         ? renderPhaseCompareOverlay(selection.fromRow, fromPhoto, selection.toRow, toPhoto)
@@ -1391,7 +1391,7 @@ function renderNutritionPhaseRow(row) {
           <strong>${photos.length ? `${photos.length}x` : "+"}</strong>
         </summary>
         <div class="phase-photo-tools">
-          <button class="btn compact" data-action="add-phase-photo" data-row-id="${row.id}">+ Fotky</button>
+          <button class="btn compact" type="button" data-action="add-phase-photo" data-row-id="${row.id}">+ Fotky</button>
           <span class="microcopy">${photoStorageText}</span>
         </div>
         ${photos.length ? `
@@ -1415,16 +1415,16 @@ function renderPhasePhoto(rowId, photo, index, total) {
           <span>${index + 1}</span>
         </button>
         <div class="photo-move-controls">
-          <button class="icon-btn photo-mini-move" data-action="move-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" data-direction="-1" title="Posunout fotku doleva" aria-label="Posunout fotku doleva" ${index === 0 ? "disabled" : ""}>^</button>
-          <button class="icon-btn photo-mini-move" data-action="move-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" data-direction="1" title="Posunout fotku doprava" aria-label="Posunout fotku doprava" ${index >= total - 1 ? "disabled" : ""}>v</button>
+          <button class="icon-btn photo-mini-move" type="button" data-action="move-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" data-direction="-1" title="Posunout fotku zpet" aria-label="Posunout fotku zpet" ${index === 0 ? "disabled" : ""}>&lt;</button>
+          <button class="icon-btn photo-mini-move" type="button" data-action="move-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" data-direction="1" title="Posunout fotku dopredu" aria-label="Posunout fotku dopredu" ${index >= total - 1 ? "disabled" : ""}>&gt;</button>
         </div>
       </div>
-      <button class="phase-photo-thumb" data-action="open-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" title="Otevrit fotku" aria-label="Otevrit fotku">
+      <button class="phase-photo-thumb" type="button" data-action="open-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" title="Otevrit fotku" aria-label="Otevrit fotku">
         <img src="${escapeAttr(src)}" alt="${escapeAttr(photo.name)}">
       </button>
       <figcaption>
         <span>${escapeHtml(formatPhotoDate(photo.addedAt))}</span>
-        <button class="icon-btn danger" data-action="remove-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" title="Smazat fotku" aria-label="Smazat fotku">x</button>
+        <button class="icon-btn danger" type="button" data-action="remove-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" title="Smazat fotku" aria-label="Smazat fotku">x</button>
       </figcaption>
     </figure>
   `;
@@ -2185,6 +2185,7 @@ async function handleClick(event) {
     const offset = Number(target.dataset.direction);
     if (movePhasePhotoByOffset(target.dataset.rowId, target.dataset.photoId, offset)) {
       save();
+      runPendingSyncNow("Poradi fotek se nepodarilo ulozit do cloudu.");
       render();
       showToast("Poradi fotek upraveno.");
     }
@@ -3010,7 +3011,12 @@ function handlePhasePhotoPointerMove(event) {
 
   phasePhotoDrag.moved = true;
   const rect = card.getBoundingClientRect();
-  const insertAfter = event.clientX > rect.left + rect.width / 2;
+  const midX = rect.left + rect.width / 2;
+  const midY = rect.top + rect.height / 2;
+  const sameRowGesture = Math.abs(event.clientY - midY) < rect.height * 0.35;
+  const insertAfter = sameRowGesture
+    ? event.clientX > midX
+    : event.clientY > midY;
 
   document.querySelectorAll(".phase-photo-card.photo-drop-before, .phase-photo-card.photo-drop-after").forEach((item) => {
     item.classList.remove("photo-drop-before", "photo-drop-after");
@@ -3032,6 +3038,7 @@ function finishPhasePhotoDrag(event) {
   if (!drag.moved || !drag.overId || drag.overId === drag.photoId) return;
   if (movePhasePhotoInRow(drag.rowId, drag.photoId, drag.overId, drag.insertAfter)) {
     save();
+    runPendingSyncNow("Poradi fotek se nepodarilo ulozit do cloudu.");
     render();
     showToast("Poradi fotek upraveno.");
   }
