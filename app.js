@@ -1032,6 +1032,7 @@ function renderLeaderboardShell() {
           <div>
             <p class="eyebrow">Leaderboard</p>
             <h2>Tydenni vykon</h2>
+            <p class="auth-copy">Rozklikni sportovce a uvidis jeho public treninky a makra pro vybrany tyden.</p>
           </div>
           <button class="btn" data-action="refresh-social">Refresh</button>
         </div>
@@ -1729,14 +1730,138 @@ function renderFeedSetTable(sets) {
 
 function renderLeaderboardRow(row, index) {
   return `
-    <div class="leader-row">
-      <span class="leader-rank">${index + 1}</span>
-      <div>
-        <strong>${escapeHtml(row.name)}</strong>
-        <span>${row.trainingDays} dny - ${row.completedSets}/${row.totalSets} serii</span>
+    <details class="leader-card">
+      <summary class="leader-row">
+        <span class="leader-rank">${index + 1}</span>
+        <div class="leader-person">
+          <strong>${escapeHtml(row.name)}</strong>
+          <span>${row.trainingDays} dny - ${row.completedSets}/${row.totalSets} serii</span>
+        </div>
+        <div class="leader-result">
+          <strong>${formatNumber(row.volume)} kg</strong>
+          <span>Rozkliknout tyden</span>
+        </div>
+      </summary>
+      <div class="leader-detail">
+        ${renderLeaderboardNutrition(row)}
+        ${renderLeaderboardWorkouts(row)}
       </div>
-      <strong>${formatNumber(row.volume)} kg</strong>
+    </details>
+  `;
+}
+
+function renderLeaderboardNutrition(row) {
+  const nutrition = row.nutrition;
+  if (!nutrition) {
+    return `
+      <section class="leader-detail-card">
+        <div class="leader-detail-head">
+          <div>
+            <strong>Nutrition tyden</strong>
+            <span>Makra pro ostatni zatim nejsou dostupna.</span>
+          </div>
+        </div>
+        <div class="microcopy">Treninky se ukazou hned. Pro makra ostatnich uzivatelu spust v Supabase patch <code>supabase-leaderboard-patch.sql</code>.</div>
+      </section>
+    `;
+  }
+
+  const week = nutrition.week;
+  const summary = nutrition.summary;
+  const weeklyGoal = toNumber(week.goals.weeklyCalories, 0);
+  const proteinGoal = toNumber(week.goals.protein, 0) * 7;
+  const carbsGoal = toNumber(week.goals.carbs, 0) * 7;
+  const fatGoal = toNumber(week.goals.fat, 0) * 7;
+  return `
+    <section class="leader-detail-card">
+      <div class="leader-detail-head">
+        <div>
+          <strong>Nutrition tyden</strong>
+          <span>${summary.daysLogged}/7 dni zapsano</span>
+        </div>
+        <span class="pill done">${formatNumber(summary.totalCalories)} / ${formatNumber(weeklyGoal)} kcal</span>
+      </div>
+      <div class="leader-macro-grid">
+        ${renderLeaderMacroMetric("Protein", summary.totalProtein, proteinGoal, "g")}
+        ${renderLeaderMacroMetric("Sachry", summary.totalCarbs, carbsGoal, "g")}
+        ${renderLeaderMacroMetric("Tuky", summary.totalFat, fatGoal, "g")}
+        ${renderLeaderMacroMetric("Prumer", summary.averageCalories, 0, "kcal/den")}
+      </div>
+      ${renderLeaderboardNutritionDays(week)}
+    </section>
+  `;
+}
+
+function renderLeaderMacroMetric(label, value, goal, unit) {
+  const goalText = goal ? ` / ${formatNumber(goal)}` : "";
+  return `
+    <div class="leader-macro-card">
+      <strong>${formatNumber(value)}${goalText} ${unit}</strong>
+      <span>${label}</span>
     </div>
+  `;
+}
+
+function renderLeaderboardNutritionDays(week) {
+  const days = (week.days || [])
+    .map((day, index) => ({ day, index }))
+    .filter(({ day }) => hasLeaderboardNutritionDay(day));
+  if (!days.length) return `<div class="microcopy">Zadne denni makro zaznamy pro tenhle tyden.</div>`;
+
+  return `
+    <div class="leader-nutrition-days">
+      ${days.map(({ day, index }) => `
+        <div class="leader-nutrition-day">
+          <strong>${DAY_LABELS[index]?.[0] || "Den"}</strong>
+          <span>${formatNumber(toNumber(day.calories, 0))} kcal</span>
+          <span>P ${formatNumber(toNumber(day.protein, 0))} / S ${formatNumber(toNumber(day.carbs, 0))} / T ${formatNumber(toNumber(day.fat, 0))}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function hasLeaderboardNutritionDay(day) {
+  return ["calories", "protein", "carbs", "fat"].some((key) => {
+    const value = day?.[key];
+    return value !== "" && value !== null && value !== undefined && toNumber(value, 0) > 0;
+  });
+}
+
+function renderLeaderboardWorkouts(row) {
+  const workouts = row.workouts || [];
+  return `
+    <section class="leader-detail-card">
+      <div class="leader-detail-head">
+        <div>
+          <strong>Treninky v tydnu</strong>
+          <span>${workouts.length ? `${workouts.length} public dni` : "Zadne public treningy"}</span>
+        </div>
+      </div>
+      <div class="leader-workouts">
+        ${workouts.length ? workouts.map(renderLeaderboardWorkout).join("") : `<div class="microcopy">Tenhle uzivatel nema v tomhle tydnu zadny public trening.</div>`}
+      </div>
+    </section>
+  `;
+}
+
+function renderLeaderboardWorkout(workout) {
+  const dayLabel = DAY_LABELS[workout.day_index]?.[1] || "Den";
+  const workoutDate = addDays(parseDate(workout.week_start), Number(workout.day_index) || 0);
+  const exercises = workout.payload?.exercises || [];
+  return `
+    <details class="leader-workout">
+      <summary>
+        <div>
+          <strong>${escapeHtml(workout.title || dayLabel)}</strong>
+          <span>${escapeHtml(dayLabel)} ${escapeHtml(formatShortDate(workoutDate))} - ${escapeHtml(workout.focus || "Trenink")}</span>
+        </div>
+        <span class="pill">${workout.completed_sets}/${workout.total_sets} serii - ${formatNumber(workout.volume)} kg</span>
+        ${renderFeedExercises(exercises)}
+        <span class="feed-detail-toggle">Rozkliknout trening</span>
+      </summary>
+      ${renderFeedWorkoutDetails(exercises)}
+    </details>
   `;
 }
 
@@ -3790,10 +3915,11 @@ async function loadFeed() {
 async function loadLeaderboard() {
   const { data, error } = await cloud.client
     .from("workout_days")
-    .select("user_id,week_start,volume,completed_sets,total_sets")
+    .select("id,user_id,week_start,day_index,title,focus,payload,volume,completed_sets,total_sets,updated_at")
     .eq("visibility", "public")
     .eq("week_start", state.weekStart)
     .gt("total_sets", 0)
+    .order("day_index", { ascending: true })
     .limit(200);
 
   if (error) {
@@ -3810,18 +3936,79 @@ async function loadLeaderboard() {
       volume: 0,
       completedSets: 0,
       totalSets: 0,
-      trainingDays: 0
+      trainingDays: 0,
+      workouts: [],
+      nutrition: null
     };
     current.volume += toNumber(row.volume, 0);
     current.completedSets += toNumber(row.completed_sets, 0);
     current.totalSets += toNumber(row.total_sets, 0);
     current.trainingDays += 1;
+    current.workouts.push(row);
     grouped.set(row.user_id, current);
+  });
+
+  const nutritionByUser = await loadLeaderboardNutrition([...grouped.keys()]);
+  grouped.forEach((row, userId) => {
+    row.workouts = row.workouts.sort((a, b) => Number(a.day_index) - Number(b.day_index));
+    row.nutrition = nutritionByUser.get(userId) || null;
   });
 
   cloud.leaderboard = [...grouped.values()]
     .sort((a, b) => b.volume - a.volume)
     .slice(0, 20);
+}
+
+async function loadLeaderboardNutrition(userIds) {
+  const nutritionByUser = new Map();
+  if (!userIds.length) return nutritionByUser;
+
+  const { data: rpcData, error: rpcError } = await cloud.client
+    .rpc("leaderboard_nutrition_for_week", { target_week: state.weekStart });
+  if (!rpcError && Array.isArray(rpcData)) {
+    rpcData
+      .filter((row) => userIds.includes(row.user_id))
+      .forEach((row) => nutritionByUser.set(row.user_id, normalizeLeaderboardNutritionRecord(row)));
+    return nutritionByUser;
+  }
+
+  const { data, error } = await cloud.client
+    .from("nutrition_weeks")
+    .select("user_id,week_start,payload,calories,protein,carbs,fat,updated_at")
+    .eq("week_start", state.weekStart)
+    .in("user_id", userIds)
+    .limit(50);
+
+  if (error) return nutritionByUser;
+  (data || []).forEach((row) => {
+    nutritionByUser.set(row.user_id, normalizeLeaderboardNutritionRecord(row));
+  });
+  return nutritionByUser;
+}
+
+function normalizeLeaderboardNutritionRecord(record) {
+  const week = normalizeNutritionWeek(record.payload || {
+    goals: record.goals || {},
+    days: record.days || []
+  });
+  const summary = summarizeNutrition(week);
+  return {
+    week,
+    summary: {
+      ...summary,
+      totalCalories: metricNumber(record.calories, summary.totalCalories),
+      totalProtein: metricNumber(record.protein, summary.totalProtein),
+      totalCarbs: metricNumber(record.carbs, summary.totalCarbs),
+      totalFat: metricNumber(record.fat, summary.totalFat)
+    },
+    updatedAt: record.updated_at || ""
+  };
+}
+
+function metricNumber(value, fallback) {
+  if (value === null || value === undefined || value === "") return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
 }
 
 async function attachProfiles(rows) {
