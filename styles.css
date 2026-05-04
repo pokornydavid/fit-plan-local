@@ -663,6 +663,39 @@ button.cloud-badge:hover {
   clip: rect(0 0 0 0);
 }
 
+.post-preview {
+  width: min(360px, 100%);
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field-bg);
+}
+
+.post-preview[hidden] {
+  display: none;
+}
+
+.post-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.post-preview-head strong {
+  font-size: 0.84rem;
+}
+
+.post-preview img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
 .post-head {
   display: flex;
   align-items: flex-start;

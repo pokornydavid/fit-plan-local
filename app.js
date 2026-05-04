@@ -2,8 +2,11 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
+const APP_VERSION = "50";
+const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
-const CLOUD_INIT_TIMEOUT_MS = 7000;
+const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
+const CLOUD_INIT_TIMEOUT_MS = 15000;
 const DEFAULT_PHASE_WEEKS = 16;
 const NUTRITION_PHASE_WEEK_START = "1970-01-05";
 const PHASE_PHOTO_BUCKET = "progress-photos";
@@ -52,6 +55,8 @@ let feedLoadSeq = 0;
 let pendingPhasePhotoRowId = null;
 let phasePhotoViewer = null;
 let phaseCompareViewer = null;
+let postComposerImageFile = null;
+let postComposerPreviewUrl = "";
 let phaseCompare = {
   fromRowId: "",
   toRowId: "",
@@ -118,14 +123,14 @@ async function boot() {
 
 async function initSupabase() {
   try {
-    const config = await withTimeout(import("./supabase-config.js"), CLOUD_INIT_TIMEOUT_MS, "Supabase config timeout");
+    const config = await withTimeout(import(SUPABASE_CONFIG_URL), CLOUD_INIT_TIMEOUT_MS, "Supabase config timeout");
     if (!config.SUPABASE_URL || !config.SUPABASE_ANON_KEY) {
       cloud.ready = true;
       cloud.configured = false;
       return;
     }
 
-    const { createClient } = await withTimeout(import(SUPABASE_MODULE_URL), CLOUD_INIT_TIMEOUT_MS, "Supabase client timeout");
+    const { createClient } = await importSupabaseClient();
     cloud.client = createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY);
     cloud.configured = true;
     cloud.status = "auth";
@@ -149,20 +154,10 @@ async function initSupabase() {
         }
         await ensureProfile();
         if (!cloud.passwordRecovery) {
-          await flushPendingSync();
-          await loadCloudData();
-          saveLocal();
-          showToast("Jsi prihlaseny.");
+          await finishSignedInSession(session, "Jsi prihlaseny.");
         }
       } else {
-        cloud.profile = null;
-        cloud.feed = [];
-        cloud.leaderboard = [];
-        cloud.posts = [];
-        cloud.authNotice = null;
-        cloud.pendingEmail = "";
-        cloud.passwordRecovery = false;
-        activateAnonymousStorage();
+        finishSignedOutState();
       }
       render();
     });
@@ -175,6 +170,15 @@ async function initSupabase() {
     console.warn(error);
   } finally {
     cloud.ready = true;
+  }
+}
+
+async function importSupabaseClient() {
+  try {
+    return await withTimeout(import(SUPABASE_MODULE_URL), CLOUD_INIT_TIMEOUT_MS, "Supabase client timeout");
+  } catch (error) {
+    console.warn(error);
+    return withTimeout(import(SUPABASE_FALLBACK_MODULE_URL), CLOUD_INIT_TIMEOUT_MS, "Supabase fallback client timeout");
   }
 }
 
@@ -879,7 +883,7 @@ function renderCloudBadge() {
     return `<button class="cloud-badge online" data-action="set-view" data-view="profile" title="Upravit profil">${escapeHtml(profileName())}</button>`;
   }
   if (cloud.configured) return `<span class="cloud-badge auth">Login ready</span>`;
-  return `<span class="cloud-badge local">Local</span>`;
+  return `<button class="cloud-badge local" data-action="retry-cloud" title="Zkusit znovu nacist cloud">Local</button>`;
 }
 
 function renderLoadingShell() {
@@ -1063,12 +1067,25 @@ function renderPostComposer() {
       </label>
       <div class="post-composer-actions">
         <label class="post-file-field">
-          <input type="file" name="image" accept="image/*">
+          <input type="file" name="image" accept="image/*" data-field="post-image">
           <span>+ Fotka</span>
         </label>
         <button class="btn primary" type="submit">Pridat post</button>
       </div>
+      <div class="post-preview" data-post-preview ${postComposerPreviewUrl ? "" : "hidden"}>
+        ${postComposerPreviewUrl ? renderPostPreviewMarkup() : ""}
+      </div>
     </form>
+  `;
+}
+
+function renderPostPreviewMarkup() {
+  return `
+    <div class="post-preview-head">
+      <strong>Vybrana fotka</strong>
+      <button class="icon-btn danger" type="button" data-action="clear-post-image" title="Odebrat fotku" aria-label="Odebrat fotku">x</button>
+    </div>
+    <img src="${escapeAttr(postComposerPreviewUrl)}" alt="${escapeAttr(postComposerImageFile?.name || "Nahled fotky")}">
   `;
 }
 
@@ -2257,6 +2274,20 @@ async function handleClick(event) {
   const week = ensureWeek();
   const day = week[state.selectedDay];
 
+  if (action === "retry-cloud") {
+    cloud.ready = false;
+    render();
+    await initSupabase();
+    if (cloud.session) {
+      await flushPendingSync();
+      await loadCloudData();
+      saveLocal();
+    }
+    render();
+    showToast(cloud.configured ? "Cloud nacteny." : "Cloud se nepodarilo nacist.");
+    return;
+  }
+
   if (action === "set-view") {
     const nextView = target.dataset.view;
     if (!["plan", "nutrition", "feed", "posts", "leaderboard", "profile"].includes(nextView)) return;
@@ -2279,8 +2310,7 @@ async function handleClick(event) {
   }
 
   if (action === "sign-out") {
-    if (cloud.client) await cloud.client.auth.signOut();
-    showToast("Odhlaseno.");
+    await signOutUser();
     return;
   }
 
@@ -2315,6 +2345,11 @@ async function handleClick(event) {
 
   if (action === "delete-community-post") {
     await deleteCommunityPost(target.dataset.postId);
+    return;
+  }
+
+  if (action === "clear-post-image") {
+    clearPostImageSelection(target.closest("[data-post-form]"));
     return;
   }
 
@@ -2755,14 +2790,47 @@ async function handleSubmit(event) {
   const password = String(form.get("password") || "");
 
   if (authMode === "sign-in") {
-    const { error } = await cloud.client.auth.signInWithPassword({ email, password });
-    if (error) {
+    try {
+      const { data, error } = await withTimeout(
+        cloud.client.auth.signInWithPassword({ email, password }),
+        15000,
+        "Prihlaseni vyprselo, zkus to prosim znovu."
+      );
+      if (error) {
+        cloud.authNotice = {
+          type: "error",
+          title: "Prihlaseni se nepovedlo",
+          text: friendlyAuthError(error)
+        };
+        cloud.pendingEmail = error.message?.toLowerCase().includes("confirm") ? email : "";
+        render();
+        showToast(cloud.authNotice.text);
+        return;
+      }
+
+      const session = data.session || (await cloud.client.auth.getSession()).data.session;
+      if (!session) {
+        cloud.authNotice = {
+          type: "error",
+          title: "Prihlaseni se nepovedlo",
+          text: "Supabase nevratil aktivni session. Zkus refresh a prihlaseni znovu."
+        };
+        render();
+        showToast(cloud.authNotice.text);
+        return;
+      }
+
+      await finishSignedInSession(session, "Jsi prihlaseny.");
+      state.activeView = "plan";
+      saveLocal();
+      render();
+    } catch (error) {
       cloud.authNotice = {
         type: "error",
         title: "Prihlaseni se nepovedlo",
         text: friendlyAuthError(error)
       };
-      cloud.pendingEmail = error.message?.toLowerCase().includes("confirm") ? email : "";
+      cloud.pendingEmail = "";
       render();
       showToast(cloud.authNotice.text);
     }
@@ -2835,6 +2903,53 @@ async function resendConfirmationEmail() {
   };
   render();
   showToast("Overovaci e-mail poslan znovu.");
+}
+
+async function signOutUser() {
+  const theme = state.theme;
+  if (cloud.client) {
+    try {
+      await withTimeout(cloud.client.auth.signOut({ scope: "local" }), 5000, "Supabase sign out timeout");
+    } catch (error) {
+      console.warn(error);
+    }
+  }
+
+  finishSignedOutState(theme);
+  render();
+  showToast("Odhlaseno.");
+}
+
+async function finishSignedInSession(session, toastMessage = "") {
+  if (!session) return;
+  cloud.session = session;
+  activateUserStorage(session.user.id);
+  if (!cloud.passwordRecovery) {
+    cloud.authNotice = null;
+    cloud.pendingEmail = "";
+  }
+  await ensureProfile();
+  if (!cloud.passwordRecovery) {
+    await flushPendingSync();
+    await loadCloudData();
+    saveLocal();
+    if (toastMessage) showToast(toastMessage);
+  }
+}
+
+function finishSignedOutState(theme = state.theme) {
+  cloud.session = null;
+  cloud.profile = null;
+  cloud.feed = [];
+  cloud.leaderboard = [];
+  cloud.posts = [];
+  cloud.authNotice = null;
+  cloud.pendingEmail = "";
+  cloud.passwordRecovery = false;
+  clearPostImageSelection();
+  activateAnonymousStorage();
+  state.theme = theme;
+  saveLocal();
 }
 
 async function sendPasswordResetEmail(email) {
@@ -3100,6 +3215,11 @@ function handleInput(event) {
 function handleChange(event) {
   const field = event.target.dataset.field;
   if (!field) return;
+
+  if (field === "post-image") {
+    updatePostImagePreview(event.target);
+    return;
+  }
 
   const week = ensureWeek();
   const day = week[state.selectedDay];
@@ -4027,6 +4147,42 @@ function communityPostFromRow(row, imageUrl = "") {
   };
 }
 
+function updatePostImagePreview(input) {
+  const file = input.files?.[0] || null;
+  if (!file) {
+    clearPostImageSelection(input.closest("[data-post-form]"));
+    return;
+  }
+  if (!file.type.startsWith("image/")) {
+    clearPostImageSelection(input.closest("[data-post-form]"));
+    showToast("Vyber prosim obrazek.");
+    return;
+  }
+
+  if (postComposerPreviewUrl) URL.revokeObjectURL(postComposerPreviewUrl);
+  postComposerImageFile = file;
+  postComposerPreviewUrl = URL.createObjectURL(file);
+  const preview = input.closest("[data-post-form]")?.querySelector("[data-post-preview]");
+  if (preview) {
+    preview.hidden = false;
+    preview.innerHTML = renderPostPreviewMarkup();
+  }
+}
+
+function clearPostImageSelection(formElement = document.querySelector("[data-post-form]")) {
+  if (postComposerPreviewUrl) URL.revokeObjectURL(postComposerPreviewUrl);
+  postComposerImageFile = null;
+  postComposerPreviewUrl = "";
+  const form = formElement || document.querySelector("[data-post-form]");
+  const input = form?.querySelector("[data-field='post-image']");
+  if (input) input.value = "";
+  const preview = form?.querySelector("[data-post-preview]");
+  if (preview) {
+    preview.hidden = true;
+    preview.innerHTML = "";
+  }
+}
+
 async function createCommunityPost(formElement) {
   if (!cloud.client || !cloud.session) {
     showToast("Pro posty se nejdriv prihlas.");
@@ -4035,7 +4191,7 @@ async function createCommunityPost(formElement) {
 
   const form = new FormData(formElement);
   const body = String(form.get("body") || "").trim();
-  const image = form.get("image");
+  const image = postComposerImageFile || form.get("image");
   const hasImage = image instanceof File && image.size > 0;
   if (!body && !hasImage) {
     showToast("Napis text nebo pridej fotku.");
@@ -4087,6 +4243,7 @@ async function createCommunityPost(formElement) {
     }
 
     formElement.reset();
+    clearPostImageSelection(formElement);
     cloud.posts = [
       communityPostFromRow({ ...data, profile: cloud.profile || null }, signedUrl),
       ...cloud.posts
