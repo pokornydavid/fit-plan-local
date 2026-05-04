@@ -149,16 +149,16 @@ button:disabled {
   justify-items: center;
   gap: 10px;
   width: 100%;
-  max-width: 620px;
+  max-width: 720px;
   margin: 0 auto;
   min-width: 0;
 }
 
 .view-tabs {
   display: inline-grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 4px;
-  width: min(520px, 100%);
+  width: min(650px, 100%);
   padding: 4px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -598,22 +598,110 @@ button.cloud-badge:hover {
 }
 
 .feed-list,
-.leaderboard {
+.leaderboard,
+.post-list {
   display: grid;
   gap: 12px;
 }
 
 .feed-card,
-.leader-card {
+.leader-card,
+.post-composer,
+.post-card {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--control);
 }
 
-.feed-card {
+.feed-card,
+.post-card {
   display: grid;
   gap: 10px;
   padding: 14px;
+}
+
+.post-composer {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.post-textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.post-composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.post-file-field {
+  position: relative;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--field-bg);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.post-file-field input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.post-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.post-head strong,
+.post-head span {
+  display: block;
+}
+
+.post-head span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.post-card p {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.post-image {
+  width: min(520px, 100%);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field-bg);
+  cursor: zoom-in;
+}
+
+.post-image img {
+  display: block;
+  width: 100%;
+  max-height: 520px;
+  object-fit: cover;
 }
 
 .feed-summary {
@@ -2587,5 +2675,11 @@ button.cloud-badge:hover {
   .view-tabs,
   .nutrition-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .post-composer-actions,
+  .post-composer-actions .btn,
+  .post-file-field {
+    width: 100%;
   }
 }

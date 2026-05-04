@@ -9,6 +9,8 @@ const NUTRITION_PHASE_WEEK_START = "1970-01-05";
 const PHASE_PHOTO_BUCKET = "progress-photos";
 const PHASE_PHOTO_LIMIT = 12;
 const PHASE_PHOTO_SIGNED_URL_SECONDS = 60 * 60 * 24 * 7;
+const COMMUNITY_POST_BUCKET = "community-posts";
+const COMMUNITY_POST_SIGNED_URL_SECONDS = 60 * 60 * 24 * 7;
 const DAY_LABELS = [
   ["Po", "Pondeli"],
   ["Ut", "Utery"],
@@ -64,6 +66,7 @@ let cloud = {
   profile: null,
   feed: [],
   leaderboard: [],
+  posts: [],
   authNotice: null,
   pendingEmail: "",
   passwordRecovery: false,
@@ -155,6 +158,7 @@ async function initSupabase() {
         cloud.profile = null;
         cloud.feed = [];
         cloud.leaderboard = [];
+        cloud.posts = [];
         cloud.authNotice = null;
         cloud.pendingEmail = "";
         cloud.passwordRecovery = false;
@@ -232,7 +236,7 @@ function createAccountState(theme = "dark") {
 function normalizeState(value, fallback = createDefaultState()) {
   const next = {
     theme: value?.theme === "light" ? "light" : "dark",
-    activeView: ["plan", "nutrition", "feed", "leaderboard", "profile"].includes(value?.activeView) ? value.activeView : "plan",
+    activeView: ["plan", "nutrition", "feed", "posts", "leaderboard", "profile"].includes(value?.activeView) ? value.activeView : "plan",
     selectedDay: Number.isInteger(value?.selectedDay) ? value.selectedDay : fallback.selectedDay,
     weekStart: value?.weekStart || fallback.weekStart,
     weeks: value?.weeks && typeof value.weeks === "object" ? value.weeks : fallback.weeks,
@@ -803,10 +807,12 @@ function render() {
       ? renderProfileShell()
     : state.activeView === "feed"
       ? renderFeedShell()
-      : state.activeView === "leaderboard"
-        ? renderLeaderboardShell()
-        : state.activeView === "nutrition"
-          ? renderNutritionShell(nutrition, nutritionSummary)
+      : state.activeView === "posts"
+        ? renderPostsShell()
+        : state.activeView === "leaderboard"
+          ? renderLeaderboardShell()
+          : state.activeView === "nutrition"
+            ? renderNutritionShell(nutrition, nutritionSummary)
         : `
           <div class="shell">
             ${renderWeekPanel(week)}
@@ -830,7 +836,8 @@ function render() {
             ${renderViewButton("plan", "Plan")}
             ${renderViewButton("nutrition", "Nutrition")}
             ${renderViewButton("feed", "Feed")}
-            ${renderViewButton("leaderboard", "Vykon")}
+            ${renderViewButton("posts", "Posty")}
+            ${renderViewButton("leaderboard", "Progress")}
           </nav>
           <div class="week-switcher" aria-label="Vyber tydne">
             <button class="icon-btn" data-action="prev-week" title="Predchozi tyden" aria-label="Predchozi tyden">&lt;</button>
@@ -896,7 +903,7 @@ function renderAuthShell() {
         <div>
           <p class="eyebrow">Fit Plan Cloud</p>
           <h2>Train, eat and track progress in one place</h2>
-          <p class="auth-copy">Sync workouts, calories, macros and bodyweight across devices. Share public sessions and build a weekly leaderboard around consistency.</p>
+          <p class="auth-copy">Sync workouts, calories, macros and bodyweight across devices. Share public sessions, post updates and track weekly progress with your crew.</p>
         </div>
         ${renderAuthNotice()}
         <div class="auth-grid">
@@ -967,7 +974,7 @@ function renderProfileShell() {
         <div>
           <p class="eyebrow">Account</p>
           <h2>Profil a prezdivka</h2>
-          <p class="auth-copy">Tohle jmeno se ukazuje nahore v appce, ve feedu a v leaderboardu.</p>
+          <p class="auth-copy">Tohle jmeno se ukazuje nahore v appce, ve feedu, postech a progressu.</p>
         </div>
         <form class="auth-card profile-card" data-profile-form>
           <label class="field">
@@ -1024,21 +1031,85 @@ function renderFeedShell() {
   `;
 }
 
+function renderPostsShell() {
+  const posts = cloud.posts || [];
+  return `
+    <main class="social-shell">
+      <section class="social-main">
+        <div class="social-head">
+          <div>
+            <p class="eyebrow">Posty</p>
+            <h2>Komunitni zed</h2>
+            <p class="auth-copy">Rychle zpravy, fotky z fitka, update k forme nebo jen kratky check-in pro partu.</p>
+          </div>
+          <button class="btn" data-action="refresh-social">Refresh</button>
+        </div>
+        ${renderCloudSetupNotice()}
+        ${cloud.session ? renderPostComposer() : ""}
+        <div class="post-list">
+          ${posts.length ? posts.map(renderPostCard).join("") : renderSocialEmpty("Zatim tu nejsou zadne posty.", "Napis prvni update pro partu, klidne jen text nebo fotku.")}
+        </div>
+      </section>
+    </main>
+  `;
+}
+
+function renderPostComposer() {
+  return `
+    <form class="post-composer" data-post-form>
+      <label class="field">
+        <span>Novy post</span>
+        <textarea class="input post-textarea" name="body" rows="3" maxlength="700" placeholder="Co chces poslat parte?"></textarea>
+      </label>
+      <div class="post-composer-actions">
+        <label class="post-file-field">
+          <input type="file" name="image" accept="image/*">
+          <span>+ Fotka</span>
+        </label>
+        <button class="btn primary" type="submit">Pridat post</button>
+      </div>
+    </form>
+  `;
+}
+
+function renderPostCard(post) {
+  const profile = post.profile || {};
+  const name = profile.display_name || profile.username || post.authorName || "Sportovec";
+  const isOwn = post.user_id === cloud.session?.user?.id;
+  return `
+    <article class="post-card">
+      <div class="post-head">
+        <div>
+          <strong>${escapeHtml(name)}</strong>
+          <span>${escapeHtml(formatCloudDate(post.created_at))}</span>
+        </div>
+        ${isOwn ? `<button class="icon-btn danger" data-action="delete-community-post" data-post-id="${escapeAttr(post.id)}" title="Smazat post" aria-label="Smazat post">x</button>` : ""}
+      </div>
+      ${post.body ? `<p>${escapeHtml(post.body)}</p>` : ""}
+      ${post.imageUrl ? `
+        <button class="post-image" type="button" data-action="open-community-post-image" data-post-id="${escapeAttr(post.id)}" title="Otevrit fotku" aria-label="Otevrit fotku">
+          <img src="${escapeAttr(post.imageUrl)}" alt="${escapeAttr(post.imageName || "Post fotka")}">
+        </button>
+      ` : ""}
+    </article>
+  `;
+}
+
 function renderLeaderboardShell() {
   return `
     <main class="social-shell">
       <section class="social-main">
         <div class="social-head">
           <div>
-            <p class="eyebrow">Tydenni vykon</p>
-            <h2>Tydenni vykon</h2>
+            <p class="eyebrow">Progress</p>
+            <h2>Tydenni progress</h2>
             <p class="auth-copy">Rozklikni sportovce a uvidis jeho public treninky a makra pro vybrany tyden. Zobrazuji se vsichni registrovani uzivatele.</p>
           </div>
           <button class="btn" data-action="refresh-social">Refresh</button>
         </div>
         ${renderCloudSetupNotice()}
         <div class="leaderboard">
-          ${cloud.leaderboard.length ? cloud.leaderboard.map(renderLeaderboardRow).join("") : renderSocialEmpty("Tydenni vykon se naplni po registraci uzivatelu.")}
+          ${cloud.leaderboard.length ? cloud.leaderboard.map(renderLeaderboardRow).join("") : renderSocialEmpty("Progress se naplni po registraci uzivatelu.", "Jakmile nekdo zapise makra nebo public trening, uvidis ho tady.")}
         </div>
       </section>
     </main>
@@ -1613,12 +1684,12 @@ function renderCloudSetupNotice() {
   `;
 }
 
-function renderSocialEmpty(message) {
+function renderSocialEmpty(message, detail = "U treningu nastav viditelnost na Public a po ulozeni se objevi tady.") {
   return `
     <div class="empty social-empty">
       <div>
         <strong>${escapeHtml(message)}</strong>
-        <div class="microcopy">U treningu nastav viditelnost na Public a po ulozeni se objevi tady.</div>
+        <div class="microcopy">${escapeHtml(detail)}</div>
       </div>
     </div>
   `;
@@ -1765,10 +1836,10 @@ function renderLeaderboardNutrition(row) {
         <div class="leader-detail-head">
           <div>
             <strong>Nutrition tyden</strong>
-            <span>Bez maker pro vybrany tyden.</span>
+            <span>Tenhle tyden bez zapsanych maker.</span>
           </div>
         </div>
-        <div class="microcopy">Pokud si je uzivatel pise a tady nejsou videt, spust v Supabase patch <code>supabase-leaderboard-patch.sql</code>.</div>
+        <div class="microcopy">Az si uzivatel zapise jidlo, objevi se tady kcal a makra.</div>
       </section>
     `;
   }
@@ -2188,7 +2259,7 @@ async function handleClick(event) {
 
   if (action === "set-view") {
     const nextView = target.dataset.view;
-    if (!["plan", "nutrition", "feed", "leaderboard", "profile"].includes(nextView)) return;
+    if (!["plan", "nutrition", "feed", "posts", "leaderboard", "profile"].includes(nextView)) return;
     if (nextView === "feed" && state.activeView !== "feed") {
       setSelectedDate(new Date());
       ensureWeek();
@@ -2201,7 +2272,7 @@ async function handleClick(event) {
     await flushPendingSync();
     if (nextView === "nutrition") await loadCloudNutritionWeek();
     if (nextView === "feed") await loadCloudWeek();
-    if (nextView === "feed" || nextView === "leaderboard") await loadSocialData();
+    if (nextView === "feed" || nextView === "posts" || nextView === "leaderboard") await loadSocialData();
     if (nextView === "nutrition") saveLocal();
     render();
     return;
@@ -2239,6 +2310,17 @@ async function handleClick(event) {
     await loadSocialData();
     render();
     showToast("Data obnovena.");
+    return;
+  }
+
+  if (action === "delete-community-post") {
+    await deleteCommunityPost(target.dataset.postId);
+    return;
+  }
+
+  if (action === "open-community-post-image") {
+    const post = cloud.posts.find((item) => item.id === target.dataset.postId);
+    if (post?.imageUrl) window.open(post.imageUrl, "_blank", "noopener");
     return;
   }
 
@@ -2653,6 +2735,12 @@ async function handleSubmit(event) {
     return;
   }
 
+  if (event.target.dataset.postForm !== undefined) {
+    event.preventDefault();
+    await createCommunityPost(event.target);
+    return;
+  }
+
   const authMode = event.target.dataset.authForm;
   if (!authMode) return;
   event.preventDefault();
@@ -2866,15 +2954,16 @@ async function resetAccountData() {
   if (!confirm("Posledni kontrola: data se smazi z cloudu i z tohoto zarizeni.")) return;
 
   const userId = cloud.session.user.id;
-  const [workoutResult, nutritionResult, photoResult] = await Promise.allSettled([
+  const [workoutResult, nutritionResult, photoResult, postResult] = await Promise.allSettled([
     cloud.client.from("workout_days").delete().eq("user_id", userId),
     cloud.client.from("nutrition_weeks").delete().eq("user_id", userId),
-    deleteAllCloudPhasePhotos()
+    deleteAllCloudPhasePhotos(),
+    deleteAllCommunityPosts()
   ]);
 
-  const error = workoutResult.value?.error || nutritionResult.value?.error || photoResult.reason;
-  if (workoutResult.status === "rejected" || nutritionResult.status === "rejected" || error) {
-    const thrownError = workoutResult.reason || nutritionResult.reason || error;
+  const error = workoutResult.value?.error || nutritionResult.value?.error || photoResult.reason || postResult.reason;
+  if (workoutResult.status === "rejected" || nutritionResult.status === "rejected" || postResult.status === "rejected" || error) {
+    const thrownError = workoutResult.reason || nutritionResult.reason || postResult.reason || error;
     console.warn(thrownError);
     showCloudError("Data se nepodarilo vymazat.", thrownError);
     return;
@@ -2884,6 +2973,7 @@ async function resetAccountData() {
   pendingSync = createEmptyPendingSync();
   cloud.feed = [];
   cloud.leaderboard = [];
+  cloud.posts = [];
   saveLocal();
   savePendingSync();
   await loadSocialData();
@@ -3891,7 +3981,187 @@ function cloudPhasePhotoFromRow(record, url) {
 
 async function loadSocialData() {
   if (!cloud.client || !cloud.session) return;
-  await Promise.all([loadFeed(), loadLeaderboard()]);
+  await Promise.all([loadFeed(), loadLeaderboard(), loadCommunityPosts()]);
+}
+
+async function loadCommunityPosts() {
+  if (!cloud.client || !cloud.session) return;
+  const { data, error } = await cloud.client
+    .from("community_posts")
+    .select("id,user_id,body,image_storage_path,image_name,image_width,image_height,image_size,content_type,created_at,updated_at")
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error) {
+    if (!["42P01", "PGRST205"].includes(error.code)) console.warn(error);
+    cloud.posts = [];
+    return;
+  }
+
+  const rows = await attachProfiles(data || []);
+  cloud.posts = await Promise.all(rows.map(async (row) => {
+    let signedUrl = "";
+    if (row.image_storage_path) {
+      const { data: signed, error: signedError } = await cloud.client
+        .storage
+        .from(COMMUNITY_POST_BUCKET)
+        .createSignedUrl(row.image_storage_path, COMMUNITY_POST_SIGNED_URL_SECONDS);
+      if (signedError) {
+        console.warn(signedError);
+      } else {
+        signedUrl = signed?.signedUrl || "";
+      }
+    }
+    return communityPostFromRow(row, signedUrl);
+  }));
+}
+
+function communityPostFromRow(row, imageUrl = "") {
+  return {
+    ...row,
+    body: String(row.body || ""),
+    imageUrl,
+    imageName: row.image_name || "Post fotka",
+    imageWidth: toNumber(row.image_width, 0),
+    imageHeight: toNumber(row.image_height, 0)
+  };
+}
+
+async function createCommunityPost(formElement) {
+  if (!cloud.client || !cloud.session) {
+    showToast("Pro posty se nejdriv prihlas.");
+    return;
+  }
+
+  const form = new FormData(formElement);
+  const body = String(form.get("body") || "").trim();
+  const image = form.get("image");
+  const hasImage = image instanceof File && image.size > 0;
+  if (!body && !hasImage) {
+    showToast("Napis text nebo pridej fotku.");
+    return;
+  }
+
+  let uploadedPath = "";
+  let prepared = null;
+  try {
+    if (hasImage) {
+      prepared = await prepareCompressedPhasePhoto(image);
+      uploadedPath = `${cloud.session.user.id}/${Date.now()}-${prepared.id}.jpg`;
+      const { error: uploadError } = await cloud.client
+        .storage
+        .from(COMMUNITY_POST_BUCKET)
+        .upload(uploadedPath, prepared.blob, {
+          cacheControl: "31536000",
+          contentType: "image/jpeg",
+          upsert: false
+        });
+      if (uploadError) throw uploadError;
+    }
+
+    const { data, error } = await cloud.client
+      .from("community_posts")
+      .insert({
+        user_id: cloud.session.user.id,
+        body,
+        image_storage_path: uploadedPath || null,
+        image_name: prepared?.name || "",
+        image_width: prepared?.width || 0,
+        image_height: prepared?.height || 0,
+        image_size: prepared?.blob?.size || 0,
+        content_type: prepared ? "image/jpeg" : ""
+      })
+      .select("id,user_id,body,image_storage_path,image_name,image_width,image_height,image_size,content_type,created_at,updated_at")
+      .single();
+
+    if (error) throw error;
+
+    let signedUrl = "";
+    if (uploadedPath) {
+      const { data: signed, error: signedError } = await cloud.client
+        .storage
+        .from(COMMUNITY_POST_BUCKET)
+        .createSignedUrl(uploadedPath, COMMUNITY_POST_SIGNED_URL_SECONDS);
+      if (signedError) console.warn(signedError);
+      signedUrl = signed?.signedUrl || "";
+    }
+
+    formElement.reset();
+    cloud.posts = [
+      communityPostFromRow({ ...data, profile: cloud.profile || null }, signedUrl),
+      ...cloud.posts
+    ].slice(0, 50);
+    render();
+    showToast("Post pridan.");
+  } catch (error) {
+    if (uploadedPath) {
+      try {
+        await cloud.client.storage.from(COMMUNITY_POST_BUCKET).remove([uploadedPath]);
+      } catch {
+        // Best effort cleanup when DB insert fails after upload.
+      }
+    }
+    console.warn(error);
+    showCloudError("Post se nepodarilo pridat.", error, "supabase-posts-patch.sql");
+  }
+}
+
+async function deleteCommunityPost(postId) {
+  if (!cloud.client || !cloud.session || !postId) return;
+  const post = cloud.posts.find((item) => item.id === postId);
+  if (!post || post.user_id !== cloud.session.user.id) return;
+  if (!confirm("Smazat post?")) return;
+
+  const { error } = await cloud.client
+    .from("community_posts")
+    .delete()
+    .eq("id", postId)
+    .eq("user_id", cloud.session.user.id);
+  if (error) {
+    showCloudError("Post se nepodarilo smazat.", error, "supabase-posts-patch.sql");
+    return;
+  }
+
+  if (post.image_storage_path) {
+    const { error: storageError } = await cloud.client
+      .storage
+      .from(COMMUNITY_POST_BUCKET)
+      .remove([post.image_storage_path]);
+    if (storageError) console.warn(storageError);
+  }
+
+  cloud.posts = cloud.posts.filter((item) => item.id !== postId);
+  render();
+  showToast("Post smazan.");
+}
+
+async function deleteAllCommunityPosts() {
+  if (!cloud.client || !cloud.session) return null;
+  const userId = cloud.session.user.id;
+  const { data, error: listError } = await cloud.client
+    .from("community_posts")
+    .select("image_storage_path")
+    .eq("user_id", userId);
+  if (listError) {
+    if (["42P01", "PGRST205"].includes(listError.code)) return null;
+    throw listError;
+  }
+
+  const paths = (data || []).map((post) => post.image_storage_path).filter(Boolean);
+  if (paths.length) {
+    const { error: storageError } = await cloud.client
+      .storage
+      .from(COMMUNITY_POST_BUCKET)
+      .remove(paths);
+    if (storageError) console.warn(storageError);
+  }
+
+  const { error } = await cloud.client
+    .from("community_posts")
+    .delete()
+    .eq("user_id", userId);
+  if (error) throw error;
+  return paths.length;
 }
 
 async function loadFeed() {
@@ -4762,7 +5032,7 @@ function showToast(message) {
   toastTimer = setTimeout(() => toast.classList.remove("show"), 3200);
 }
 
-function showCloudError(prefix, error) {
+function showCloudError(prefix, error, patchFile = "supabase-progress-photos.sql") {
   const rawMessage = String(error?.message || "");
   const lowerMessage = rawMessage.toLowerCase();
   const needsSqlPatch = ["PGRST205", "42P01"].includes(error?.code) ||
@@ -4770,7 +5040,7 @@ function showCloudError(prefix, error) {
     lowerMessage.includes("row-level security") ||
     lowerMessage.includes("violates row-level security");
   const message = needsSqlPatch
-    ? `${prefix} V Supabase chybi Storage patch. Spust supabase-progress-photos.sql.`
+    ? `${prefix} V Supabase chybi patch. Spust ${patchFile}.`
     : `${prefix} ${rawMessage}`.trim();
   showToast(message);
 }
