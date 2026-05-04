@@ -830,7 +830,7 @@ function render() {
             ${renderViewButton("plan", "Plan")}
             ${renderViewButton("nutrition", "Nutrition")}
             ${renderViewButton("feed", "Feed")}
-            ${renderViewButton("leaderboard", "Leaderboard")}
+            ${renderViewButton("leaderboard", "Vykon")}
           </nav>
           <div class="week-switcher" aria-label="Vyber tydne">
             <button class="icon-btn" data-action="prev-week" title="Predchozi tyden" aria-label="Predchozi tyden">&lt;</button>
@@ -1030,15 +1030,15 @@ function renderLeaderboardShell() {
       <section class="social-main">
         <div class="social-head">
           <div>
-            <p class="eyebrow">Leaderboard</p>
+            <p class="eyebrow">Tydenni vykon</p>
             <h2>Tydenni vykon</h2>
-            <p class="auth-copy">Rozklikni sportovce a uvidis jeho public treninky a makra pro vybrany tyden.</p>
+            <p class="auth-copy">Rozklikni sportovce a uvidis jeho public treninky a makra pro vybrany tyden. Zobrazuji se vsichni registrovani uzivatele.</p>
           </div>
           <button class="btn" data-action="refresh-social">Refresh</button>
         </div>
         ${renderCloudSetupNotice()}
         <div class="leaderboard">
-          ${cloud.leaderboard.length ? cloud.leaderboard.map(renderLeaderboardRow).join("") : renderSocialEmpty("Leaderboard se naplni z public treningu.")}
+          ${cloud.leaderboard.length ? cloud.leaderboard.map(renderLeaderboardRow).join("") : renderSocialEmpty("Tydenni vykon se naplni po registraci uzivatelu.")}
         </div>
       </section>
     </main>
@@ -1735,7 +1735,7 @@ function renderLeaderboardRow(row, index) {
         <span class="leader-rank">${index + 1}</span>
         <div class="leader-person">
           <strong>${escapeHtml(row.name)}</strong>
-          <span>${row.trainingDays} dny - ${row.completedSets}/${row.totalSets} serii</span>
+          <span>${formatTrainingDays(row.trainingDays)} - ${row.completedSets}/${row.totalSets} serii</span>
         </div>
         <div class="leader-result">
           <strong>${formatNumber(row.volume)} kg</strong>
@@ -1750,6 +1750,13 @@ function renderLeaderboardRow(row, index) {
   `;
 }
 
+function formatTrainingDays(count) {
+  const value = Number(count) || 0;
+  if (value === 1) return "1 den";
+  if (value >= 2 && value <= 4) return `${value} dny`;
+  return `${value} dni`;
+}
+
 function renderLeaderboardNutrition(row) {
   const nutrition = row.nutrition;
   if (!nutrition) {
@@ -1758,10 +1765,10 @@ function renderLeaderboardNutrition(row) {
         <div class="leader-detail-head">
           <div>
             <strong>Nutrition tyden</strong>
-            <span>Makra pro ostatni zatim nejsou dostupna.</span>
+            <span>Bez maker pro vybrany tyden.</span>
           </div>
         </div>
-        <div class="microcopy">Treninky se ukazou hned. Pro makra ostatnich uzivatelu spust v Supabase patch <code>supabase-leaderboard-patch.sql</code>.</div>
+        <div class="microcopy">Pokud si je uzivatel pise a tady nejsou videt, spust v Supabase patch <code>supabase-leaderboard-patch.sql</code>.</div>
       </section>
     `;
   }
@@ -3913,33 +3920,31 @@ async function loadFeed() {
 }
 
 async function loadLeaderboard() {
-  const { data, error } = await cloud.client
-    .from("workout_days")
-    .select("id,user_id,week_start,day_index,title,focus,payload,volume,completed_sets,total_sets,updated_at")
-    .eq("visibility", "public")
-    .eq("week_start", state.weekStart)
-    .gt("total_sets", 0)
-    .order("day_index", { ascending: true })
-    .limit(200);
+  const [profiles, workoutResult] = await Promise.all([
+    loadLeaderboardProfiles(),
+    cloud.client
+      .from("workout_days")
+      .select("id,user_id,week_start,day_index,title,focus,payload,volume,completed_sets,total_sets,updated_at")
+      .eq("visibility", "public")
+      .eq("week_start", state.weekStart)
+      .gt("total_sets", 0)
+      .order("day_index", { ascending: true })
+      .limit(200)
+  ]);
 
-  if (error) {
+  if (workoutResult.error && !profiles.length) {
     cloud.leaderboard = [];
     return;
   }
 
-  const rows = await attachProfiles(data || []);
+  const rows = await attachProfiles(workoutResult.data || []);
   const grouped = new Map();
+  profiles.forEach((profile) => {
+    grouped.set(profile.id, createLeaderboardEntry(profile));
+  });
+
   rows.forEach((row) => {
-    const current = grouped.get(row.user_id) || {
-      userId: row.user_id,
-      name: row.profile?.display_name || row.profile?.username || "Sportovec",
-      volume: 0,
-      completedSets: 0,
-      totalSets: 0,
-      trainingDays: 0,
-      workouts: [],
-      nutrition: null
-    };
+    const current = grouped.get(row.user_id) || createLeaderboardEntry(row.profile, row.user_id);
     current.volume += toNumber(row.volume, 0);
     current.completedSets += toNumber(row.completed_sets, 0);
     current.totalSets += toNumber(row.total_sets, 0);
@@ -3949,14 +3954,57 @@ async function loadLeaderboard() {
   });
 
   const nutritionByUser = await loadLeaderboardNutrition([...grouped.keys()]);
+  nutritionByUser.forEach((nutrition, userId) => {
+    if (!grouped.has(userId)) grouped.set(userId, createLeaderboardEntry(null, userId));
+  });
   grouped.forEach((row, userId) => {
     row.workouts = row.workouts.sort((a, b) => Number(a.day_index) - Number(b.day_index));
     row.nutrition = nutritionByUser.get(userId) || null;
   });
 
   cloud.leaderboard = [...grouped.values()]
-    .sort((a, b) => b.volume - a.volume)
-    .slice(0, 20);
+    .sort(compareLeaderboardRows)
+    .slice(0, 100);
+}
+
+async function loadLeaderboardProfiles() {
+  const { data, error } = await cloud.client
+    .from("profiles")
+    .select("id,username,display_name,avatar_url")
+    .limit(100);
+  if (error) {
+    if (cloud.profile?.id) return [cloud.profile];
+    return [];
+  }
+  const profiles = data || [];
+  if (cloud.profile?.id && !profiles.some((profile) => profile.id === cloud.profile.id)) {
+    profiles.push(cloud.profile);
+  }
+  return profiles;
+}
+
+function createLeaderboardEntry(profile = null, userId = "") {
+  return {
+    userId: profile?.id || userId,
+    name: profile?.display_name || profile?.username || "Sportovec",
+    profile,
+    volume: 0,
+    completedSets: 0,
+    totalSets: 0,
+    trainingDays: 0,
+    workouts: [],
+    nutrition: null
+  };
+}
+
+function compareLeaderboardRows(a, b) {
+  const byVolume = b.volume - a.volume;
+  if (byVolume) return byVolume;
+  const byTrainingDays = b.trainingDays - a.trainingDays;
+  if (byTrainingDays) return byTrainingDays;
+  const byCalories = (b.nutrition?.summary?.totalCalories || 0) - (a.nutrition?.summary?.totalCalories || 0);
+  if (byCalories) return byCalories;
+  return a.name.localeCompare(b.name, "cs");
 }
 
 async function loadLeaderboardNutrition(userIds) {
