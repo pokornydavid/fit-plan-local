@@ -2,7 +2,7 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
-const APP_VERSION = "51";
+const APP_VERSION = "52";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -219,14 +219,49 @@ async function refreshCloudDataIfIdle({ force = false } = {}) {
   try {
     await flushPendingSync();
     if (hasAnyPendingSync()) return;
+    const beforeRefresh = snapshotVisibleCloudData();
     await loadCloudData();
+    const afterRefresh = snapshotVisibleCloudData();
     saveLocal();
-    render();
+    if (beforeRefresh !== afterRefresh) render();
   } catch (error) {
     console.warn(error);
   } finally {
     cloudRefreshInFlight = false;
   }
+}
+
+function snapshotVisibleCloudData() {
+  const week = state.weeks[state.weekStart] || null;
+  const nutrition = state.nutrition[state.weekStart] || null;
+  const phase = {
+    ...stripPhasePhotosForCloud(state.nutritionPhase),
+    rows: state.nutritionPhase.rows.map((row) => ({
+      id: row.id,
+      weekLabel: row.weekLabel,
+      date: row.date,
+      calories: row.calories,
+      weight: row.weight,
+      notes: row.notes,
+      photoOrder: normalizePhotoOrder(row.photoOrder),
+      photos: orderPhasePhotos(row.photos, row.photoOrder).map((photo) => ({
+        key: phasePhotoKey(photo),
+        storagePath: photo.storagePath || "",
+        addedAt: photo.addedAt || ""
+      }))
+    }))
+  };
+  return JSON.stringify({
+    activeView: state.activeView,
+    weekStart: state.weekStart,
+    selectedDay: state.selectedDay,
+    week,
+    nutrition,
+    phase,
+    feed: cloud.feed.map((row) => `${row.user_id}:${row.week_start}:${row.day_index}:${row.updated_at}:${row.volume}:${row.completed_sets}:${row.total_sets}`),
+    leaderboard: cloud.leaderboard.map((row) => `${row.user_id}:${row.totalVolume}:${row.trainingDays}:${row.completedSets}:${row.totalSets}`),
+    posts: cloud.posts.map((post) => `${post.id}:${post.updated_at}:${post.body}:${post.image_storage_path || ""}`)
+  });
 }
 
 function loadState(storageKey = activeStorageKey, fallback = createDefaultState()) {
@@ -4129,7 +4164,21 @@ function mergePhasePhotoLists(localPhotos, cloudPhotos, order = []) {
   return orderPhasePhotos(photos, order);
 }
 
+function findExistingCloudPhasePhoto(record) {
+  const recordId = record.id || "";
+  const storagePath = record.storage_path || "";
+  for (const row of state.nutritionPhase.rows) {
+    const match = row.photos.find((photo) => (
+      (recordId && photo.cloudId === recordId) ||
+      (storagePath && photo.storagePath === storagePath)
+    ));
+    if (match) return match;
+  }
+  return null;
+}
+
 function cloudPhasePhotoFromRow(record, url) {
+  const existing = findExistingCloudPhasePhoto(record);
   return {
     id: record.id || uid(),
     cloudId: record.id || "",
@@ -4138,7 +4187,7 @@ function cloudPhasePhotoFromRow(record, url) {
     name: record.file_name || "Posing photo",
     addedAt: record.created_at || new Date().toISOString(),
     dataUrl: "",
-    url,
+    url: existing?.url || url,
     storagePath: record.storage_path || "",
     width: toNumber(record.width, 0),
     height: toNumber(record.height, 0)
