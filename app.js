@@ -2,7 +2,7 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
-const APP_VERSION = "52";
+const APP_VERSION = "53";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -934,7 +934,7 @@ function render() {
           </button>
           ${cloud.session ? `<button class="btn" data-action="sign-out">Odhlasit</button>` : ""}
           ${state.activeView === "plan" && !lockedForAuth ? `
-            <button class="btn" data-action="copy-prev-week">Kopirovat minuly</button>
+            <button class="btn" data-action="copy-prev-day">Kopirovat den</button>
             <button class="btn warn" data-action="sample-week">Ukazkovy plan</button>
           ` : ""}
         </div>
@@ -2674,16 +2674,34 @@ async function handleClick(event) {
     return;
   }
 
-  if (action === "copy-prev-week") {
+  if (action === "copy-prev-day") {
     const previousStart = toDateInput(addDays(parseDate(state.weekStart), -7));
     if (!state.weeks[previousStart]) {
-      showToast("Minuly tyden zatim nema plan.");
+      try {
+        const cloudWeek = await loadCloudWeekByStart(previousStart);
+        if (cloudWeek) state.weeks[previousStart] = cloudWeek;
+      } catch (error) {
+        console.warn(error);
+        showCloudError("Minuly tyden se nepodarilo nacist.", error);
+        return;
+      }
+    }
+
+    const previousDay = state.weeks[previousStart]?.[state.selectedDay];
+    if (!previousDay || !hasDayPlanData(previousDay)) {
+      showToast(`${DAY_LABELS[state.selectedDay][1]} v minulem tydnu nema plan.`);
       return;
     }
-    state.weeks[state.weekStart] = cloneWeek(state.weeks[previousStart], true);
+
+    const currentDay = ensureWeek()[state.selectedDay];
+    if (hasDayPlanData(currentDay) && !confirm(`Prepsat jen vybrany den ${DAY_LABELS[state.selectedDay][1]} planem z minuleho tydne? Ostatni dny zustanou.`)) {
+      return;
+    }
+
+    ensureWeek()[state.selectedDay] = cloneDay(previousDay, true);
     save();
     render();
-    showToast("Tyden zkopirovan.");
+    showToast(`${DAY_LABELS[state.selectedDay][1]} zkopirovano z minuleho tydne.`);
     return;
   }
 
@@ -4016,6 +4034,24 @@ async function loadCloudWeek() {
   await flushPendingSync();
 }
 
+async function loadCloudWeekByStart(weekStart) {
+  if (!cloud.client || !cloud.session) return null;
+  const { data, error } = await cloud.client
+    .from("workout_days")
+    .select("*")
+    .eq("user_id", cloud.session.user.id)
+    .eq("week_start", weekStart)
+    .order("day_index", { ascending: true });
+
+  if (error) throw error;
+  if (!data?.length) return null;
+  const week = createBlankWeek();
+  data.forEach((row) => {
+    week[row.day_index] = rowToDay(row);
+  });
+  return week;
+}
+
 async function loadCloudNutritionWeek() {
   if (!cloud.client || !cloud.session) return;
   if (!flushingPendingSync && hasPendingNutritionForWeek(state.weekStart)) {
@@ -5092,19 +5128,34 @@ function cloneWeek(week, resetDone = false) {
   const normalized = normalizeWeek(week);
   return Object.fromEntries(Object.entries(normalized).map(([day, value]) => [
     day,
-    {
-      ...value,
-      exercises: value.exercises.map((exercise) => ({
-        ...exercise,
-        id: uid(),
-        sets: exercise.sets.map((set) => ({
-          ...set,
-          id: uid(),
-          done: resetDone ? false : set.done
-        }))
-      }))
-    }
+    cloneDay(value, resetDone)
   ]));
+}
+
+function cloneDay(day, resetDone = false) {
+  const normalized = normalizeWeek({ 0: day })[0];
+  return {
+    ...normalized,
+    exercises: normalized.exercises.map((exercise) => ({
+      ...exercise,
+      id: uid(),
+      sets: exercise.sets.map((set) => ({
+        ...set,
+        id: uid(),
+        done: resetDone ? false : set.done
+      }))
+    }))
+  };
+}
+
+function hasDayPlanData(day) {
+  if (!day) return false;
+  return Boolean(
+    String(day.title || "").trim() ||
+    String(day.focus || "").trim() ||
+    String(day.notes || "").trim() ||
+    day.exercises?.length
+  );
 }
 
 function cloneNutritionWeek(nutrition, resetDays = false) {
