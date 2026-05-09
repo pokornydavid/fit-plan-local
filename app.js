@@ -2,7 +2,7 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
-const APP_VERSION = "58";
+const APP_VERSION = "59";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -908,8 +908,8 @@ function render() {
         <div class="brand">
           <div class="brand-mark" aria-hidden="true">FP</div>
           <div>
-            <h1>David Fit Plan</h1>
-            <span>${cloud.configured ? "Training & nutrition cloud by David" : "Local training tracker by David"}</span>
+            <h1>Fit plan by David</h1>
+            <span>${cloud.configured ? "Training & nutrition cloud" : "Local training tracker"}</span>
           </div>
         </div>
         <div class="center-stack">
@@ -1009,7 +1009,7 @@ function renderLoadingShell() {
     <main class="auth-shell">
       <section class="auth-panel profile-panel">
         <div>
-          <p class="eyebrow">David Fit Plan</p>
+          <p class="eyebrow">Fit plan by David</p>
           <h2>Nacitam spravny ucet</h2>
           <p class="auth-copy">Chvilku kontroluju prihlaseni a oddeluju data podle uctu.</p>
         </div>
@@ -1023,7 +1023,7 @@ function renderAuthShell() {
     <main class="auth-shell">
       <section class="auth-panel">
         <div>
-          <p class="eyebrow">David Fit Plan</p>
+          <p class="eyebrow">Fit plan by David</p>
           <h2>Train, eat and track progress in one place</h2>
           <p class="auth-copy">Sync workouts, calories, macros and bodyweight across devices. Share public sessions, post updates and track weekly progress with your crew.</p>
         </div>
