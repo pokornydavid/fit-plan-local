@@ -2,11 +2,12 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
-const APP_VERSION = "50";
+const APP_VERSION = "51";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
 const CLOUD_INIT_TIMEOUT_MS = 15000;
+const CLOUD_REFRESH_INTERVAL_MS = 6000;
 const DEFAULT_PHASE_WEEKS = 16;
 const NUTRITION_PHASE_WEEK_START = "1970-01-05";
 const PHASE_PHOTO_BUCKET = "progress-photos";
@@ -47,6 +48,8 @@ let state = loadState();
 let toastTimer = 0;
 let cloudSyncTimer = 0;
 let nutritionSyncTimer = 0;
+let cloudRefreshTimer = 0;
+let cloudRefreshInFlight = false;
 let exerciseDrag = null;
 let phasePhotoDrag = null;
 let pendingSync = loadPendingSync();
@@ -96,6 +99,8 @@ window.addEventListener("pointermove", handlePointerMove);
 window.addEventListener("pointerup", handlePointerUp);
 window.addEventListener("pointercancel", handlePointerCancel);
 window.addEventListener("pagehide", handlePageHide);
+window.addEventListener("focus", () => refreshCloudDataIfIdle({ force: true }));
+window.addEventListener("online", () => refreshCloudDataIfIdle({ force: true }));
 document.addEventListener("visibilitychange", handleVisibilityChange);
 document.addEventListener("keydown", handleKeyDown);
 importFile.addEventListener("change", handleImport);
@@ -118,6 +123,7 @@ async function boot() {
     await loadCloudData();
     saveLocal();
   }
+  startCloudAutoRefresh();
   render();
 }
 
@@ -189,6 +195,38 @@ function withTimeout(promise, timeoutMs, message) {
       setTimeout(() => reject(new Error(message)), timeoutMs);
     })
   ]);
+}
+
+function startCloudAutoRefresh() {
+  clearInterval(cloudRefreshTimer);
+  cloudRefreshTimer = setInterval(() => {
+    refreshCloudDataIfIdle().catch((error) => console.warn(error));
+  }, CLOUD_REFRESH_INTERVAL_MS);
+}
+
+function isEditingAppField() {
+  const element = document.activeElement;
+  if (!element || !app.contains(element)) return false;
+  return ["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName);
+}
+
+async function refreshCloudDataIfIdle({ force = false } = {}) {
+  if (!cloud.client || !cloud.session || !cloud.ready || cloudRefreshInFlight) return;
+  if (document.visibilityState === "hidden") return;
+  if (!force && isEditingAppField()) return;
+
+  cloudRefreshInFlight = true;
+  try {
+    await flushPendingSync();
+    if (hasAnyPendingSync()) return;
+    await loadCloudData();
+    saveLocal();
+    render();
+  } catch (error) {
+    console.warn(error);
+  } finally {
+    cloudRefreshInFlight = false;
+  }
 }
 
 function loadState(storageKey = activeStorageKey, fallback = createDefaultState()) {
@@ -840,8 +878,8 @@ function render() {
             ${renderViewButton("plan", "Plan")}
             ${renderViewButton("nutrition", "Nutrition")}
             ${renderViewButton("feed", "Feed")}
-            ${renderViewButton("posts", "Posty")}
             ${renderViewButton("leaderboard", "Progress")}
+            ${renderViewButton("posts", "Posty")}
           </nav>
           <div class="week-switcher" aria-label="Vyber tydne">
             <button class="icon-btn" data-action="prev-week" title="Predchozi tyden" aria-label="Predchozi tyden">&lt;</button>
@@ -1044,14 +1082,14 @@ function renderPostsShell() {
           <div>
             <p class="eyebrow">Posty</p>
             <h2>Komunitni zed</h2>
-            <p class="auth-copy">Rychle zpravy, fotky z fitka, update k forme nebo jen kratky check-in pro partu.</p>
+            <p class="auth-copy">Rychle zpravy a fotky pro vybrany tyden ${escapeHtml(weekRangeLabel(state.weekStart))}.</p>
           </div>
           <button class="btn" data-action="refresh-social">Refresh</button>
         </div>
         ${renderCloudSetupNotice()}
         ${cloud.session ? renderPostComposer() : ""}
         <div class="post-list">
-          ${posts.length ? posts.map(renderPostCard).join("") : renderSocialEmpty("Zatim tu nejsou zadne posty.", "Napis prvni update pro partu, klidne jen text nebo fotku.")}
+          ${posts.length ? posts.map(renderPostCard).join("") : renderSocialEmpty("Tenhle tyden tu zatim nejsou zadne posty.", "Napis prvni update pro partu, klidne jen text nebo fotku.")}
         </div>
       </section>
     </main>
@@ -3309,9 +3347,12 @@ function handlePageHide() {
 }
 
 function handleVisibilityChange() {
-  if (document.visibilityState !== "hidden") return;
-  saveLocal();
-  runPendingSyncNow("Neulozene zmeny se nepodarilo dosynchronizovat.");
+  if (document.visibilityState === "hidden") {
+    saveLocal();
+    runPendingSyncNow("Neulozene zmeny se nepodarilo dosynchronizovat.");
+    return;
+  }
+  refreshCloudDataIfIdle({ force: true });
 }
 
 function handleKeyDown(event) {
@@ -3923,7 +3964,12 @@ async function loadCloudWeek() {
     return;
   }
 
-  if (!data?.length) return;
+  if (!data?.length) {
+    if (!hasPendingWorkoutsForWeek(state.weekStart)) {
+      state.weeks[state.weekStart] = createBlankWeek();
+    }
+    return;
+  }
   const week = createBlankWeek();
   data.forEach((row) => {
     week[row.day_index] = rowToDay(row);
@@ -4106,9 +4152,13 @@ async function loadSocialData() {
 
 async function loadCommunityPosts() {
   if (!cloud.client || !cloud.session) return;
+  const weekStartDate = parseDate(state.weekStart);
+  const weekEndDate = addDays(weekStartDate, 7);
   const { data, error } = await cloud.client
     .from("community_posts")
     .select("id,user_id,body,image_storage_path,image_name,image_width,image_height,image_size,content_type,created_at,updated_at")
+    .gte("created_at", weekStartDate.toISOString())
+    .lt("created_at", weekEndDate.toISOString())
     .order("created_at", { ascending: false })
     .limit(50);
 
