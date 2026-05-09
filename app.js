@@ -2,7 +2,7 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
-const APP_VERSION = "56";
+const APP_VERSION = "57";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -58,6 +58,7 @@ let feedLoadSeq = 0;
 let pendingPhasePhotoRowId = null;
 let phasePhotoViewer = null;
 let phaseCompareViewer = null;
+let copyDayDialogOpen = false;
 let postComposerImageFile = null;
 let postComposerPreviewUrl = "";
 let phaseCompare = {
@@ -937,12 +938,13 @@ function render() {
           </button>
           ${cloud.session ? `<button class="btn" data-action="sign-out">Odhlasit</button>` : ""}
           ${state.activeView === "plan" && !lockedForAuth ? `
-            <button class="btn" data-action="copy-prev-day">Kopirovat den</button>
+            <button class="btn" data-action="open-copy-day-dialog">Kopirovat</button>
             <button class="btn warn" data-action="sample-week">Ukazkovy plan</button>
           ` : ""}
         </div>
       </header>
       ${content}
+      ${renderCopyDayDialog()}
       ${renderPhasePhotoViewer()}
       ${renderPhaseCompareViewer()}
     </div>
@@ -960,6 +962,46 @@ function renderCloudBadge() {
   }
   if (cloud.configured) return `<span class="cloud-badge auth">Login ready</span>`;
   return `<button class="cloud-badge local" data-action="retry-cloud" title="Zkusit znovu nacist cloud">Local</button>`;
+}
+
+function renderCopyDayDialog() {
+  if (!copyDayDialogOpen) return "";
+  const sourceDate = getSelectedDate();
+  const targetDate = addDays(sourceDate, 1);
+  const sourceDay = ensureWeek()[state.selectedDay];
+  return `
+    <div class="copy-dialog" role="dialog" aria-modal="true" aria-label="Kopirovat trening">
+      <button class="copy-dialog-backdrop" type="button" data-action="close-copy-day-dialog" aria-label="Zavrit"></button>
+      <form class="copy-dialog-panel" data-copy-day-form>
+        <div class="copy-dialog-head">
+          <div>
+            <p class="eyebrow">Kopirovani</p>
+            <h2>Kopirovat trening</h2>
+            <p class="auth-copy">Vyber zdrojovy den a datum, kam se ma trening zkopirovat. Prepisuje se jen cilovy den.</p>
+          </div>
+          <button class="icon-btn" type="button" data-action="close-copy-day-dialog" title="Zavrit" aria-label="Zavrit">x</button>
+        </div>
+        <div class="copy-dialog-summary">
+          <strong>${escapeHtml(sourceDay.title || "Vybrany den")}</strong>
+          <span>${escapeHtml(DAY_LABELS[state.selectedDay][1])} ${escapeHtml(formatShortDate(sourceDate))} - ${sourceDay.exercises.length} cviku</span>
+        </div>
+        <div class="copy-dialog-grid">
+          <label class="field">
+            <span>Zkopirovat z data</span>
+            <input class="input" type="date" name="sourceDate" value="${escapeAttr(toDateInput(sourceDate))}" required>
+          </label>
+          <label class="field">
+            <span>Zkopirovat na datum</span>
+            <input class="input" type="date" name="targetDate" value="${escapeAttr(toDateInput(targetDate))}" required>
+          </label>
+        </div>
+        <div class="copy-dialog-actions">
+          <button class="btn" type="button" data-action="close-copy-day-dialog">Zrusit</button>
+          <button class="btn primary" type="submit">Kopirovat trening</button>
+        </div>
+      </form>
+    </div>
+  `;
 }
 
 function renderLoadingShell() {
@@ -2426,6 +2468,18 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "open-copy-day-dialog" || action === "copy-prev-day" || action === "copy-prev-week") {
+    copyDayDialogOpen = true;
+    render();
+    return;
+  }
+
+  if (action === "close-copy-day-dialog") {
+    copyDayDialogOpen = false;
+    render();
+    return;
+  }
+
   if (action === "delete-community-post") {
     await deleteCommunityPost(target.dataset.postId);
     return;
@@ -2684,11 +2738,6 @@ async function handleClick(event) {
     return;
   }
 
-  if (action === "copy-prev-day" || action === "copy-prev-week") {
-    await copyPreviousSelectedDay();
-    return;
-  }
-
   if (action === "sample-week") {
     if (!confirm("Prepsat aktualni tyden ukazkovym planem?")) return;
     state.weeks[state.weekStart] = createSampleWeek();
@@ -2833,6 +2882,12 @@ async function handleClick(event) {
 }
 
 async function handleSubmit(event) {
+  if (event.target.dataset.copyDayForm !== undefined) {
+    event.preventDefault();
+    await copyWorkoutByDates(event.target);
+    return;
+  }
+
   if (event.target.dataset.resetPasswordForm !== undefined) {
     event.preventDefault();
     await saveNewPassword(event.target);
@@ -4921,52 +4976,85 @@ function restoreDefaultLibraryItems() {
   return added;
 }
 
-async function copyPreviousSelectedDay() {
-  const previousStart = toDateInput(addDays(parseDate(state.weekStart), -7));
+async function copyWorkoutByDates(formElement) {
+  const form = new FormData(formElement);
+  const sourceDateValue = String(form.get("sourceDate") || "");
+  const targetDateValue = String(form.get("targetDate") || "");
+  if (!sourceDateValue || !targetDateValue) {
+    showToast("Vyber zdrojovy i cilovy datum.");
+    return;
+  }
+
+  const sourceDate = parseDate(sourceDateValue);
+  const targetDate = parseDate(targetDateValue);
+  if (Number.isNaN(sourceDate.getTime()) || Number.isNaN(targetDate.getTime())) {
+    showToast("Datum neni platne.");
+    return;
+  }
+  if (sourceDateValue === targetDateValue) {
+    showToast("Zdroj a cil nemuzou byt stejny den.");
+    return;
+  }
+
+  const sourceWeekStart = toDateInput(getWeekStart(sourceDate));
+  const targetWeekStart = toDateInput(getWeekStart(targetDate));
+  const sourceDayIndex = getDayIndex(sourceDate);
+  const targetDayIndex = getDayIndex(targetDate);
+
   try {
-    await refreshCurrentWeekBeforeDayCopy();
-    if (!state.weeks[previousStart]) {
-      const cloudPreviousWeek = await loadCloudWeekByStart(previousStart);
-      if (cloudPreviousWeek) state.weeks[previousStart] = cloudPreviousWeek;
-    }
+    await loadWeekForCopy(sourceWeekStart);
+    await loadWeekForCopy(targetWeekStart);
   } catch (error) {
     console.warn(error);
     showCloudError("Kopirovani se nepodarilo pripravit.", error);
     return;
   }
 
-  const previousDay = state.weeks[previousStart]?.[state.selectedDay];
-  if (!previousDay || !hasDayPlanData(previousDay)) {
-    showToast(`${DAY_LABELS[state.selectedDay][1]} v minulem tydnu nema plan.`);
+  const sourceDay = state.weeks[sourceWeekStart]?.[sourceDayIndex];
+  if (!sourceDay || !hasDayPlanData(sourceDay)) {
+    showToast(`${DAY_LABELS[sourceDayIndex][1]} ${formatShortDate(sourceDate)} nema plan.`);
     return;
   }
 
-  const currentDay = ensureWeek()[state.selectedDay];
-  if (hasDayPlanData(currentDay) && !confirm(`Prepsat jen vybrany den ${DAY_LABELS[state.selectedDay][1]} planem z minuleho tydne? Ostatni dny zustanou.`)) {
+  const targetWeek = state.weeks[targetWeekStart] || createBlankWeek();
+  const targetDay = targetWeek[targetDayIndex];
+  if (hasDayPlanData(targetDay) && !confirm(`Prepsat jen ${DAY_LABELS[targetDayIndex][1]} ${formatShortDate(targetDate)} zkopirovanym treningem? Ostatni dny zustanou.`)) {
     return;
   }
 
-  ensureWeek()[state.selectedDay] = cloneDay(previousDay, true);
+  targetWeek[targetDayIndex] = cloneDay(sourceDay, true);
+  state.weeks[targetWeekStart] = targetWeek;
+  state.weekStart = targetWeekStart;
+  state.selectedDay = targetDayIndex;
+  ensureNutritionWeek();
+  copyDayDialogOpen = false;
   save();
   runPendingSyncNow("Kopirovany den se nepodarilo ulozit do cloudu.");
   render();
-  showToast(`${DAY_LABELS[state.selectedDay][1]} zkopirovano z minuleho tydne.`);
+  showToast(`Trening z ${formatShortDate(sourceDate)} zkopirovan na ${formatShortDate(targetDate)}.`);
 }
 
-async function refreshCurrentWeekBeforeDayCopy() {
-  if (!cloud.client || !cloud.session) return;
-  const cloudWeek = await loadCloudWeekByStart(state.weekStart);
-  if (!cloudWeek) return;
+async function loadWeekForCopy(weekStart) {
+  if (!cloud.client || !cloud.session) {
+    if (!state.weeks[weekStart]) state.weeks[weekStart] = createBlankWeek();
+    return;
+  }
 
-  const localWeek = ensureWeek();
+  const cloudWeek = await loadCloudWeekByStart(weekStart);
+  if (!cloudWeek) {
+    if (!state.weeks[weekStart]) state.weeks[weekStart] = createBlankWeek();
+    return;
+  }
+
+  const localWeek = state.weeks[weekStart] || createBlankWeek();
   const mergedWeek = createBlankWeek();
   DAY_LABELS.forEach((_, dayIndex) => {
-    const pendingKey = workoutPendingKey(state.weekStart, dayIndex);
+    const pendingKey = workoutPendingKey(weekStart, dayIndex);
     mergedWeek[dayIndex] = pendingSync.workouts[pendingKey]
       ? localWeek[dayIndex]
       : cloudWeek[dayIndex];
   });
-  state.weeks[state.weekStart] = mergedWeek;
+  state.weeks[weekStart] = mergedWeek;
   saveLocal();
 }
 

@@ -1358,6 +1358,70 @@ button.cloud-badge:hover {
   min-width: 260px;
 }
 
+.copy-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 1090;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.copy-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.copy-dialog-panel {
+  position: relative;
+  width: min(720px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+}
+
+.copy-dialog-head,
+.copy-dialog-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.copy-dialog-head h2 {
+  margin: 3px 0 6px;
+}
+
+.copy-dialog-summary {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field-bg);
+}
+
+.copy-dialog-summary span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.copy-dialog-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.copy-dialog-actions {
+  justify-content: flex-end;
+}
+
 .compare-viewer {
   position: fixed;
   inset: 0;
@@ -2691,6 +2755,20 @@ button.cloud-badge:hover {
   .side-muscle-section {
     display: none;
   }
+
+  .copy-dialog {
+    align-items: end;
+    padding: 10px;
+  }
+
+  .copy-dialog-panel {
+    max-height: calc(100vh - 20px);
+    overflow: auto;
+  }
+
+  .copy-dialog-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 520px) {
@@ -2713,6 +2791,15 @@ button.cloud-badge:hover {
   .post-composer-actions,
   .post-composer-actions .btn,
   .post-file-field {
+    width: 100%;
+  }
+
+  .copy-dialog-head,
+  .copy-dialog-actions {
+    display: grid;
+  }
+
+  .copy-dialog-actions .btn {
     width: 100%;
   }
 }
