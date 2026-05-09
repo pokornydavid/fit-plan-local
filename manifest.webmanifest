@@ -1,7 +1,7 @@
 {
-  "name": "Fit Plan",
-  "short_name": "FitPlan",
-  "description": "Training planner, workout feed and leaderboard.",
+  "name": "David Fit Plan",
+  "short_name": "David Fit",
+  "description": "Training and nutrition tracker founded by David.",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#080b0f",

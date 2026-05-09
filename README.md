@@ -1,4 +1,4 @@
-# Fit plan local
+# David Fit Plan
 
 Jednoducha lokalni appka na planovani treninku ve fitku. Bezi bez databaze,
 umi bezet v lokalnim rezimu, ale je pripravena i na Supabase login, cloud
