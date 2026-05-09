@@ -2,7 +2,7 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
-const APP_VERSION = "60";
+const APP_VERSION = "61";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -907,7 +907,7 @@ function render() {
       <header class="topbar">
         <div class="brand">
           <div class="brand-mark" aria-hidden="true">FP</div>
-          <div>
+          <div class="brand-copy">
             <h1>Fit plan <small>by David</small></h1>
             <span class="brand-subtitle">${cloud.configured ? "Training & nutrition cloud" : "Local training tracker"}</span>
           </div>

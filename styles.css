@@ -123,6 +123,7 @@ button:disabled {
 
 .topbar {
   display: grid;
+  grid-template-areas: "brand center actions";
   grid-template-columns: minmax(240px, 310px) minmax(320px, 1fr) minmax(260px, auto);
   align-items: center;
   gap: 18px;
@@ -145,6 +146,7 @@ button:disabled {
 }
 
 .center-stack {
+  grid-area: center;
   display: grid;
   justify-items: center;
   gap: 10px;
@@ -181,11 +183,16 @@ button:disabled {
 }
 
 .brand {
+  grid-area: brand;
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
   overflow: hidden;
+}
+
+.brand-copy {
+  min-width: 0;
 }
 
 .brand-mark {
@@ -265,6 +272,7 @@ button:disabled {
 }
 
 .top-actions {
+  grid-area: actions;
   display: flex;
   justify-content: flex-end;
   align-items: center;
@@ -2398,13 +2406,15 @@ button.cloud-badge:hover {
   transform: translateX(-50%) translateY(0);
 }
 
-@media (max-width: 1500px) {
+@media (max-width: 1280px) {
   .topbar {
-    grid-template-columns: 1fr;
-    align-items: start;
+    grid-template-areas:
+      "brand actions"
+      "center center";
+    grid-template-columns: minmax(220px, 1fr) minmax(260px, auto);
+    align-items: center;
   }
 
-  .brand,
   .center-stack,
   .top-actions {
     width: 100%;
@@ -2416,20 +2426,21 @@ button.cloud-badge:hover {
     margin: 0 auto;
   }
 
-  .week-switcher,
   .top-actions {
-    justify-content: center;
+    justify-content: flex-end;
   }
 }
 
 @media (max-width: 1180px) {
   .topbar {
-    grid-template-columns: 1fr;
+    grid-template-areas:
+      "brand actions"
+      "center center";
+    grid-template-columns: minmax(220px, 1fr) minmax(260px, auto);
   }
 
-  .week-switcher,
   .top-actions {
-    justify-content: center;
+    justify-content: flex-end;
   }
 
   .center-stack {
@@ -2454,7 +2465,21 @@ button.cloud-badge:hover {
   }
 
   .topbar {
+    grid-template-areas:
+      "brand"
+      "center"
+      "actions";
+    grid-template-columns: 1fr;
     gap: 12px;
+  }
+
+  .brand {
+    width: 100%;
+  }
+
+  .top-actions {
+    width: 100%;
+    justify-content: center;
   }
 
   .brand-mark {
@@ -2787,18 +2812,50 @@ button.cloud-badge:hover {
 }
 
 @media (max-width: 520px) {
+  .topbar {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  .brand h1 {
+    font-size: 1rem;
+  }
+
+  .brand span {
+    font-size: 0.76rem;
+  }
+
+  .center-stack {
+    max-width: 100%;
+  }
+
+  .view-tabs {
+    grid-template-columns: repeat(5, minmax(58px, 1fr));
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .view-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .view-tab {
+    min-height: 34px;
+    padding: 0 6px;
+    font-size: 0.82rem;
+  }
+
   .week-switcher {
     flex-wrap: wrap;
-    justify-content: flex-start;
+    justify-content: center;
   }
 
   .week-label {
     width: 100%;
-    text-align: left;
+    text-align: center;
     order: -1;
   }
 
-  .view-tabs,
   .nutrition-metrics {
     grid-template-columns: 1fr;
   }
