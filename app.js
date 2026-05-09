@@ -2,7 +2,7 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
-const APP_VERSION = "54";
+const APP_VERSION = "55";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -547,13 +547,16 @@ function createSet(overrides = {}) {
   };
 }
 
-function createExercise(name, muscle, sets = [createSet(), createSet(), createSet()], notes = "") {
+function createExercise(name, muscle, sets = null, notes = "") {
+  const baseSets = sets || (muscle === "Kardio"
+    ? [createSet({ reps: 20, weight: 5, rpe: 0 })]
+    : [createSet(), createSet(), createSet()]);
   return {
     id: uid(),
     name,
     muscle,
     notes,
-    sets: sets.map((set) => createSet(set))
+    sets: baseSets.map((set) => createSet(set))
   };
 }
 
@@ -1842,7 +1845,9 @@ function renderFeedWorkoutDetails(exercises) {
 function renderFeedExerciseDetail(exercise, index) {
   const sets = Array.isArray(exercise.sets) ? exercise.sets : [];
   const completed = sets.filter((set) => set.done).length;
-  const volume = sets.reduce((sum, set) => sum + toNumber(set.reps, 0) * toNumber(set.weight, 0), 0);
+  const volume = summarizeExerciseVolume(exercise);
+  const cardioDuration = summarizeCardioDuration(exercise);
+  const isCardio = isCardioExercise(exercise);
   return `
     <div class="feed-exercise-detail">
       <div class="feed-exercise-head">
@@ -1851,15 +1856,17 @@ function renderFeedExerciseDetail(exercise, index) {
           <strong>${escapeHtml(exercise.name || "Cvik")}</strong>
           <small>${escapeHtml(exercise.muscle || "Full body")}</small>
         </div>
-        <span class="pill">${completed}/${sets.length} serii - ${formatNumber(volume)} kg</span>
+        <span class="pill">${isCardio ? `${completed}/${sets.length} useku - ${formatNumber(cardioDuration)} min` : `${completed}/${sets.length} serii - ${formatNumber(volume)} kg`}</span>
       </div>
-      ${renderFeedSetTable(sets)}
+      ${renderFeedSetTable(exercise)}
       ${exercise.notes ? `<p class="feed-note">${escapeHtml(exercise.notes)}</p>` : ""}
     </div>
   `;
 }
 
-function renderFeedSetTable(sets) {
+function renderFeedSetTable(exercise) {
+  const sets = Array.isArray(exercise.sets) ? exercise.sets : [];
+  const labels = setMetricLabels(exercise);
   if (!sets.length) return `<div class="microcopy">Bez serii.</div>`;
   return `
     <div class="feed-set-wrap">
@@ -1868,9 +1875,9 @@ function renderFeedSetTable(sets) {
           <tr>
             <th>Serie</th>
             <th>Hotovo</th>
-            <th>Opak.</th>
-            <th>Kg</th>
-            <th>RPE</th>
+            <th>${labels.reps}</th>
+            <th>${labels.weight}</th>
+            <th>${labels.rpe}</th>
           </tr>
         </thead>
         <tbody>
@@ -2137,6 +2144,7 @@ function renderEmptyDay() {
 }
 
 function renderExercise(exercise, index, totalExercises) {
+  const labels = setMetricLabels(exercise);
   return `
     <article class="exercise-card" data-exercise-id="${exercise.id}" data-exercise-index="${index}">
       <div class="exercise-head">
@@ -2168,14 +2176,14 @@ function renderExercise(exercise, index, totalExercises) {
             <tr>
               <th class="check-cell">Hotovo</th>
               <th>Serie</th>
-              <th>Opak.</th>
-              <th>Kg</th>
-              <th>RPE</th>
+              <th>${labels.reps}</th>
+              <th>${labels.weight}</th>
+              <th>${labels.rpe}</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            ${exercise.sets.map((set, index) => renderSetRow(exercise.id, set, index)).join("")}
+            ${exercise.sets.map((set, index) => renderSetRow(exercise, set, index)).join("")}
           </tbody>
         </table>
       </div>
@@ -2187,16 +2195,18 @@ function renderExercise(exercise, index, totalExercises) {
   `;
 }
 
-function renderSetRow(exerciseId, set, index) {
+function renderSetRow(exercise, set, index) {
+  const exerciseId = exercise.id;
+  const labels = setMetricLabels(exercise);
   return `
     <tr class="${set.done ? "done" : ""}">
       <td class="check-cell">
         <input type="checkbox" data-field="set-done" data-exercise-id="${exerciseId}" data-set-id="${set.id}" ${set.done ? "checked" : ""}>
       </td>
       <td class="set-number">${index + 1}</td>
-      <td><input class="input" type="number" min="0" step="1" data-field="set-reps" data-exercise-id="${exerciseId}" data-set-id="${set.id}" value="${escapeAttr(set.reps)}"></td>
-      <td><input class="input" type="number" min="0" step="0.5" data-field="set-weight" data-exercise-id="${exerciseId}" data-set-id="${set.id}" value="${escapeAttr(set.weight)}"></td>
-      <td><input class="input" type="number" min="1" max="10" step="0.5" data-field="set-rpe" data-exercise-id="${exerciseId}" data-set-id="${set.id}" value="${escapeAttr(set.rpe)}"></td>
+      <td><input class="input" type="number" min="0" step="${labels.repsStep}" data-field="set-reps" data-exercise-id="${exerciseId}" data-set-id="${set.id}" value="${escapeAttr(set.reps)}" aria-label="${escapeAttr(labels.reps)}"></td>
+      <td><input class="input" type="number" min="0" step="${labels.weightStep}" data-field="set-weight" data-exercise-id="${exerciseId}" data-set-id="${set.id}" value="${escapeAttr(set.weight)}" aria-label="${escapeAttr(labels.weight)}"></td>
+      <td><input class="input" type="number" min="${labels.rpeMin}" max="${labels.rpeMax}" step="${labels.rpeStep}" data-field="set-rpe" data-exercise-id="${exerciseId}" data-set-id="${set.id}" value="${escapeAttr(set.rpe)}" aria-label="${escapeAttr(labels.rpe)}"></td>
       <td><button class="icon-btn" data-action="remove-set" data-exercise-id="${exerciseId}" data-set-id="${set.id}" title="Smazat serii" aria-label="Smazat serii">x</button></td>
     </tr>
   `;
@@ -5192,6 +5202,45 @@ function cloneNutritionWeek(nutrition, resetDays = false) {
   };
 }
 
+function isCardioExercise(exercise) {
+  return exercise?.muscle === "Kardio";
+}
+
+function setMetricLabels(exercise) {
+  if (isCardioExercise(exercise)) {
+    return {
+      reps: "Doba min",
+      weight: "Rychlost",
+      rpe: "Sklon %",
+      repsStep: "1",
+      weightStep: "0.1",
+      rpeMin: "0",
+      rpeMax: "30",
+      rpeStep: "0.5"
+    };
+  }
+  return {
+    reps: "Opak.",
+    weight: "Kg",
+    rpe: "RPE",
+    repsStep: "1",
+    weightStep: "0.5",
+    rpeMin: "1",
+    rpeMax: "10",
+    rpeStep: "0.5"
+  };
+}
+
+function summarizeExerciseVolume(exercise) {
+  if (isCardioExercise(exercise)) return 0;
+  return (exercise.sets || []).reduce((sum, set) => sum + toNumber(set.reps, 0) * toNumber(set.weight, 0), 0);
+}
+
+function summarizeCardioDuration(exercise) {
+  if (!isCardioExercise(exercise)) return 0;
+  return (exercise.sets || []).reduce((sum, set) => sum + toNumber(set.reps, 0), 0);
+}
+
 function createFullBodyWeek() {
   const week = createBlankWeek();
   [0, 2, 4].forEach((dayIndex, planIndex) => {
@@ -5237,7 +5286,7 @@ function summarizeDay(day) {
   const sets = day.exercises.flatMap((exercise) => exercise.sets);
   const totalSets = sets.length;
   const completed = sets.filter((set) => set.done).length;
-  const volume = sets.reduce((sum, set) => sum + toNumber(set.reps, 0) * toNumber(set.weight, 0), 0);
+  const volume = day.exercises.reduce((sum, exercise) => sum + summarizeExerciseVolume(exercise), 0);
   return {
     totalSets,
     completed,
