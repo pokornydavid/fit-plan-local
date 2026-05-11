@@ -2,7 +2,7 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
-const APP_VERSION = "61";
+const APP_VERSION = "62";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -11,7 +11,7 @@ const CLOUD_REFRESH_INTERVAL_MS = 6000;
 const DEFAULT_PHASE_WEEKS = 16;
 const NUTRITION_PHASE_WEEK_START = "1970-01-05";
 const PHASE_PHOTO_BUCKET = "progress-photos";
-const PHASE_PHOTO_LIMIT = 12;
+const PHASE_PHOTO_LIMIT = 24;
 const PHASE_PHOTO_SIGNED_URL_SECONDS = 60 * 60 * 24 * 7;
 const COMMUNITY_POST_BUCKET = "community-posts";
 const COMMUNITY_POST_SIGNED_URL_SECONDS = 60 * 60 * 24 * 7;
@@ -50,6 +50,7 @@ let cloudSyncTimer = 0;
 let nutritionSyncTimer = 0;
 let cloudRefreshTimer = 0;
 let cloudRefreshInFlight = false;
+let phasePhotoUploadInFlight = 0;
 let exerciseDrag = null;
 let phasePhotoDrag = null;
 let pendingSync = loadPendingSync();
@@ -214,6 +215,7 @@ function isEditingAppField() {
 async function refreshCloudDataIfIdle({ force = false } = {}) {
   if (!cloud.client || !cloud.session || !cloud.ready || cloudRefreshInFlight) return;
   if (document.visibilityState === "hidden") return;
+  if (phasePhotoUploadInFlight) return;
   if (!force && isEditingAppField()) return;
 
   cloudRefreshInFlight = true;
@@ -690,9 +692,8 @@ function normalizeNutritionPhase(phase) {
 
 function normalizePhasePhotos(photos) {
   if (!Array.isArray(photos)) return [];
-  return photos
+  const normalized = photos
     .filter((photo) => photo?.dataUrl || photo?.url || photo?.storagePath)
-    .slice(0, PHASE_PHOTO_LIMIT)
     .map((photo) => ({
       id: photo.id || uid(),
       name: String(photo.name || "Posing photo"),
@@ -704,8 +705,61 @@ function normalizePhasePhotos(photos) {
       phaseRowId: photo.phaseRowId ? String(photo.phaseRowId) : "",
       weekLabel: photo.weekLabel ? String(photo.weekLabel) : "",
       width: toNumber(photo.width, 0),
-      height: toNumber(photo.height, 0)
+      height: toNumber(photo.height, 0),
+      fileSize: toNumber(photo.fileSize, 0)
     }));
+  return dedupePhasePhotos(normalized).slice(0, PHASE_PHOTO_LIMIT);
+}
+
+function phasePhotoContentKey(photo) {
+  const name = String(photo?.name || "").trim().toLowerCase();
+  const width = toNumber(photo?.width, 0);
+  const height = toNumber(photo?.height, 0);
+  const fileSize = toNumber(photo?.fileSize, 0);
+  if (name && width && height && fileSize) return `content:${name}:${width}:${height}:${fileSize}`;
+  const dataUrl = photo?.dataUrl ? String(photo.dataUrl) : "";
+  if (dataUrl) return `data:${dataUrl.length}:${dataUrl.slice(0, 96)}:${dataUrl.slice(-96)}`;
+  return "";
+}
+
+function phasePhotoLookupKeys(photo) {
+  return [
+    photo?.cloudId ? `cloud:${photo.cloudId}` : "",
+    photo?.storagePath ? `storage:${photo.storagePath}` : "",
+    phasePhotoContentKey(photo),
+    photo?.id ? `id:${photo.id}` : ""
+  ].filter(Boolean);
+}
+
+function preferPhasePhoto(next, previous) {
+  const nextCloud = Boolean(next?.storagePath || next?.cloudId);
+  const previousCloud = Boolean(previous?.storagePath || previous?.cloudId);
+  if (nextCloud !== previousCloud) return nextCloud;
+  if (Boolean(next?.url) !== Boolean(previous?.url)) return Boolean(next?.url);
+  const nextTime = new Date(next?.addedAt || 0).getTime();
+  const previousTime = new Date(previous?.addedAt || 0).getTime();
+  return nextTime && previousTime ? nextTime < previousTime : false;
+}
+
+function dedupePhasePhotos(photos) {
+  const result = [];
+  const keyToIndex = new Map();
+  photos.forEach((photo) => {
+    const keys = phasePhotoLookupKeys(photo);
+    const existingIndex = keys.map((key) => keyToIndex.get(key)).find((index) => index !== undefined);
+    if (existingIndex === undefined) {
+      const index = result.push(photo) - 1;
+      keys.forEach((key) => keyToIndex.set(key, index));
+      return;
+    }
+
+    const current = result[existingIndex];
+    const chosen = preferPhasePhoto(photo, current) ? photo : current;
+    result[existingIndex] = chosen;
+    [...phasePhotoLookupKeys(current), ...phasePhotoLookupKeys(photo), ...phasePhotoLookupKeys(chosen)]
+      .forEach((key) => keyToIndex.set(key, existingIndex));
+  });
+  return result;
 }
 
 function normalizePhotoOrder(order) {
@@ -767,7 +821,7 @@ function mergePhasePhotos(targetPhase, sourcePhase) {
     ...targetPhase,
     rows: targetPhase.rows.map((row) => {
       const sourceRow = rowsById.get(row.id) || rowsByLabel.get(row.weekLabel);
-      const order = normalizePhotoOrder([...normalizePhotoOrder(row.photoOrder), ...normalizePhotoOrder(sourceRow?.photoOrder)]);
+      const order = normalizePhotoOrder([...normalizePhotoOrder(sourceRow?.photoOrder), ...normalizePhotoOrder(row.photoOrder)]);
       const sourcePhotos = sourceRow?.photos?.length ? sourceRow.photos : row.photos;
       const photos = orderPhasePhotos(normalizePhasePhotos(sourcePhotos), order);
       const photoKeys = photos.map(phasePhotoKey);
@@ -3728,6 +3782,7 @@ async function handlePhasePhotoImport(event) {
 
   try {
     const syncToCloud = Boolean(cloud.client && cloud.session);
+    phasePhotoUploadInFlight += 1;
     showToast(syncToCloud ? "Pripravuju fotky a nahravam do cloudu..." : "Pripravuju fotky...");
     const preparedPhotos = [];
     const localPhotos = [];
@@ -3771,6 +3826,8 @@ async function handlePhasePhotoImport(event) {
   } catch (error) {
     console.warn(error);
     showCloudError("Fotku se nepodarilo ulozit.", error);
+  } finally {
+    phasePhotoUploadInFlight = Math.max(0, phasePhotoUploadInFlight - 1);
   }
 }
 
@@ -3796,7 +3853,8 @@ function localPhasePhotoFromPrepared(prepared) {
     storagePath: "",
     cloudId: "",
     width: prepared.width,
-    height: prepared.height
+    height: prepared.height,
+    fileSize: prepared.blob?.size || 0
   };
 }
 
@@ -3831,7 +3889,7 @@ async function uploadPreparedCloudPhasePhoto(row, prepared) {
       file_size: prepared.blob.size,
       content_type: "image/jpeg"
     })
-    .select("id,user_id,phase_row_id,week_label,storage_path,file_name,width,height,created_at")
+    .select("id,user_id,phase_row_id,week_label,storage_path,file_name,width,height,file_size,created_at")
     .single();
 
   if (error) {
@@ -3860,6 +3918,7 @@ function replacePhasePhotoPreviews(rowId, previewIds, uploadedPhotos) {
 
 async function syncLocalPhasePhotosToCloud() {
   if (!cloud.client || !cloud.session) return 0;
+  if (phasePhotoUploadInFlight) return 0;
   let uploadedCount = 0;
 
   for (const row of state.nutritionPhase.rows) {
@@ -4153,7 +4212,7 @@ async function loadCloudPhasePhotos() {
   if (!cloud.client || !cloud.session) return;
   const { data, error } = await cloud.client
     .from("progress_photos")
-    .select("id,user_id,phase_row_id,week_label,storage_path,file_name,width,height,created_at")
+    .select("id,user_id,phase_row_id,week_label,storage_path,file_name,width,height,file_size,created_at")
     .eq("user_id", cloud.session.user.id)
     .order("created_at", { ascending: true });
 
@@ -4228,12 +4287,7 @@ function phaseWeekNumber(label) {
 }
 
 function mergePhasePhotoLists(localPhotos, cloudPhotos, order = []) {
-  const merged = new Map();
-  [...localPhotos, ...cloudPhotos].forEach((photo) => {
-    const key = photo.cloudId || photo.storagePath || photo.id;
-    merged.set(key, photo);
-  });
-  const photos = [...merged.values()]
+  const photos = dedupePhasePhotos([...localPhotos, ...cloudPhotos])
     .sort((a, b) => new Date(a.addedAt) - new Date(b.addedAt))
     .slice(-PHASE_PHOTO_LIMIT);
   return orderPhasePhotos(photos, order);
@@ -4265,7 +4319,8 @@ function cloudPhasePhotoFromRow(record, url) {
     url: existing?.url || url,
     storagePath: record.storage_path || "",
     width: toNumber(record.width, 0),
-    height: toNumber(record.height, 0)
+    height: toNumber(record.height, 0),
+    fileSize: toNumber(record.file_size, 0)
   };
 }
 
