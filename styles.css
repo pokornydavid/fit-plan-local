@@ -2510,8 +2510,11 @@ button.cloud-badge:hover {
     gap: 8px;
     overflow-x: auto;
     padding: 0 0 4px;
-    scroll-snap-type: x mandatory;
+    scroll-snap-type: x proximity;
     scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
   }
 
   .day-list::-webkit-scrollbar {

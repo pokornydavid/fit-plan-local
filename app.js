@@ -2,7 +2,7 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
-const APP_VERSION = "62";
+const APP_VERSION = "63";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -925,6 +925,9 @@ function createSampleWeek() {
 
 function render() {
   applyTheme();
+  const preservedDayListScroll = state.activeView === "plan"
+    ? app.querySelector("[data-day-list]")?.scrollLeft || 0
+    : 0;
   const week = ensureWeek();
   const nutrition = ensureNutritionWeek();
   const selected = week[state.selectedDay];
@@ -1003,6 +1006,15 @@ function render() {
       ${renderPhaseCompareViewer()}
     </div>
   `;
+  restoreDayListScroll(preservedDayListScroll);
+}
+
+function restoreDayListScroll(scrollLeft) {
+  if (!scrollLeft || state.activeView !== "plan") return;
+  requestAnimationFrame(() => {
+    const dayList = app.querySelector("[data-day-list]");
+    if (dayList) dayList.scrollLeft = scrollLeft;
+  });
 }
 
 function renderViewButton(view, label) {
@@ -2142,7 +2154,7 @@ function renderWeekPanel(week) {
       <div class="panel-head">
         <h2>Tyden</h2>
       </div>
-      <div class="day-list">
+      <div class="day-list" data-day-list>
         ${DAY_LABELS.map((label, index) => renderDayButton(index, label, week[index])).join("")}
       </div>
     </aside>
@@ -4791,6 +4803,18 @@ async function saveSelectedDayToCloud() {
 
 async function saveDayToCloud(weekStart, dayIndex, expectedPendingUpdatedAt = null) {
   if (!cloud.client || !cloud.session) return;
+  if (expectedPendingUpdatedAt) {
+    const existing = await fetchExistingWorkoutDay(weekStart, dayIndex);
+    if (existing && isCloudRowNewer(existing.updated_at, expectedPendingUpdatedAt)) {
+      if (!state.weeks[weekStart]) state.weeks[weekStart] = createBlankWeek();
+      state.weeks[weekStart][dayIndex] = rowToDay(existing);
+      updateFeedCacheRow(existing);
+      clearPendingWorkoutSyncIfCurrent(weekStart, dayIndex, expectedPendingUpdatedAt);
+      saveLocal();
+      return;
+    }
+  }
+
   const day = state.weeks[weekStart]?.[dayIndex];
   if (!day) {
     clearPendingWorkoutSyncIfCurrent(weekStart, dayIndex, expectedPendingUpdatedAt);
@@ -4829,6 +4853,25 @@ async function saveDayToCloud(weekStart, dayIndex, expectedPendingUpdatedAt = nu
   if (error) throw error;
   updateFeedCacheRow(data);
   clearPendingWorkoutSyncIfCurrent(weekStart, dayIndex, expectedPendingUpdatedAt);
+}
+
+async function fetchExistingWorkoutDay(weekStart, dayIndex) {
+  const { data, error } = await cloud.client
+    .from("workout_days")
+    .select("id,user_id,week_start,day_index,title,focus,visibility,payload,volume,completed_sets,total_sets,updated_at")
+    .eq("user_id", cloud.session.user.id)
+    .eq("week_start", weekStart)
+    .eq("day_index", Number(dayIndex))
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+function isCloudRowNewer(cloudUpdatedAt, localPendingUpdatedAt) {
+  const cloudTime = new Date(cloudUpdatedAt || 0).getTime();
+  const localTime = new Date(localPendingUpdatedAt || 0).getTime();
+  if (!cloudTime || !localTime) return false;
+  return cloudTime > localTime + 1000;
 }
 
 async function deleteDayFromCloud(weekStart, dayIndex) {
@@ -4948,6 +4991,21 @@ async function saveNutritionToCloud() {
 
 async function saveNutritionWeekToCloud(weekStart, expectedPendingUpdatedAt = null) {
   if (!cloud.client || !cloud.session) return;
+  if (expectedPendingUpdatedAt) {
+    const existing = await fetchExistingNutritionWeek(weekStart);
+    if (existing && isCloudRowNewer(existing.updated_at, expectedPendingUpdatedAt)) {
+      if (weekStart === NUTRITION_PHASE_WEEK_START) {
+        state.nutritionPhase = normalizeNutritionPhase(existing.payload?.phase);
+      } else {
+        state.nutrition[weekStart] = normalizeNutritionWeek(existing.payload);
+        if (existing.payload?.phase) state.nutritionPhase = normalizeNutritionPhase(existing.payload.phase);
+      }
+      clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
+      saveLocal();
+      return;
+    }
+  }
+
   if (weekStart === NUTRITION_PHASE_WEEK_START) {
     await saveNutritionPhaseToCloud();
     clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
@@ -4979,6 +5037,17 @@ async function saveNutritionWeekToCloud(weekStart, expectedPendingUpdatedAt = nu
   if (error) throw error;
   await saveNutritionPhaseToCloud();
   clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
+}
+
+async function fetchExistingNutritionWeek(weekStart) {
+  const { data, error } = await cloud.client
+    .from("nutrition_weeks")
+    .select("week_start,payload,updated_at")
+    .eq("user_id", cloud.session.user.id)
+    .eq("week_start", weekStart)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
 }
 
 async function saveNutritionPhaseToCloud() {
