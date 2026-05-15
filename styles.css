@@ -2510,9 +2510,10 @@ button.cloud-badge:hover {
     gap: 8px;
     overflow-x: auto;
     padding: 0 0 4px;
-    scroll-snap-type: x proximity;
+    scroll-snap-type: none;
     scrollbar-width: none;
     overscroll-behavior-x: contain;
+    overscroll-behavior-inline: contain;
     -webkit-overflow-scrolling: touch;
     touch-action: pan-x;
   }
@@ -2524,7 +2525,7 @@ button.cloud-badge:hover {
   .day-item {
     min-width: 136px;
     padding: 10px;
-    scroll-snap-align: start;
+    scroll-snap-align: none;
   }
 
   .day-item .progress {

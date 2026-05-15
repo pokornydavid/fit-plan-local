@@ -2,7 +2,7 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
-const APP_VERSION = "63";
+const APP_VERSION = "64";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -4137,11 +4137,23 @@ async function loadCloudWeek() {
   data.forEach((row) => {
     week[row.day_index] = rowToDay(row);
   });
-  state.weeks[state.weekStart] = week;
+  state.weeks[state.weekStart] = mergeCloudWeekWithPendingLocal(state.weekStart, week);
   data
-    .filter((row) => row.visibility === "friends" || toNumber(row.total_sets, 0) <= 0)
+    .filter((row) => row.visibility === "friends")
     .forEach((row) => markPendingWorkoutSync(row.week_start, row.day_index));
   await flushPendingSync();
+}
+
+function mergeCloudWeekWithPendingLocal(weekStart, cloudWeek) {
+  const localWeek = state.weeks[weekStart] || createBlankWeek();
+  const mergedWeek = createBlankWeek();
+  DAY_LABELS.forEach((_, dayIndex) => {
+    const pendingKey = workoutPendingKey(weekStart, dayIndex);
+    mergedWeek[dayIndex] = pendingSync.workouts[pendingKey]
+      ? localWeek[dayIndex]
+      : cloudWeek[dayIndex];
+  });
+  return mergedWeek;
 }
 
 async function loadCloudWeekByStart(weekStart) {
@@ -4821,7 +4833,7 @@ async function saveDayToCloud(weekStart, dayIndex, expectedPendingUpdatedAt = nu
     return;
   }
   const summary = summarizeDay(day);
-  if (summary.totalSets <= 0) {
+  if (!hasDayCloudContent(day)) {
     await deleteDayFromCloud(weekStart, dayIndex);
     clearPendingWorkoutSyncIfCurrent(weekStart, dayIndex, expectedPendingUpdatedAt);
     return;
@@ -4983,6 +4995,16 @@ function rowToDay(row) {
       exercises: row.payload?.exercises || []
     }
   })[0];
+}
+
+function hasDayCloudContent(day) {
+  if (!day) return false;
+  return Boolean(
+    String(day.title || "").trim() ||
+    String(day.focus || "").trim() ||
+    String(day.notes || "").trim() ||
+    (Array.isArray(day.exercises) && day.exercises.length > 0)
+  );
 }
 
 async function saveNutritionToCloud() {
