@@ -313,6 +313,7 @@ create table if not exists public.community_posts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   week_start date not null default date_trunc('week', now() at time zone 'Europe/Prague')::date,
+  pinned boolean not null default false,
   body text not null default '',
   image_storage_path text,
   image_name text not null default '',
@@ -327,6 +328,9 @@ create table if not exists public.community_posts (
 
 alter table public.community_posts
   add column if not exists week_start date;
+
+alter table public.community_posts
+  add column if not exists pinned boolean not null default false;
 
 update public.community_posts
 set week_start = date_trunc('week', created_at at time zone 'Europe/Prague')::date
@@ -369,6 +373,9 @@ create index if not exists community_posts_recent_idx
 
 create index if not exists community_posts_week_recent_idx
   on public.community_posts (week_start, created_at desc);
+
+create index if not exists community_posts_pinned_recent_idx
+  on public.community_posts (pinned, created_at desc);
 
 create index if not exists community_posts_user_recent_idx
   on public.community_posts (user_id, created_at desc);

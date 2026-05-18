@@ -2,7 +2,7 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
-const APP_VERSION = "65";
+const APP_VERSION = "66";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -62,6 +62,7 @@ let phaseCompareViewer = null;
 let copyDayDialogOpen = false;
 let postComposerImageFile = null;
 let postComposerPreviewUrl = "";
+let editingPostId = "";
 let phaseCompare = {
   fromRowId: "",
   toRowId: "",
@@ -263,7 +264,7 @@ function snapshotVisibleCloudData() {
     phase,
     feed: cloud.feed.map((row) => `${row.user_id}:${row.week_start}:${row.day_index}:${row.updated_at}:${row.volume}:${row.completed_sets}:${row.total_sets}`),
     leaderboard: cloud.leaderboard.map((row) => `${row.user_id}:${row.totalVolume}:${row.trainingDays}:${row.completedSets}:${row.totalSets}`),
-    posts: cloud.posts.map((post) => `${post.id}:${post.week_start || ""}:${post.updated_at}:${post.body}:${post.image_storage_path || ""}`)
+    posts: cloud.posts.map((post) => `${post.id}:${post.week_start || ""}:${post.pinned ? 1 : 0}:${post.updated_at}:${post.body}:${post.image_storage_path || ""}`)
   });
 }
 
@@ -1228,7 +1229,7 @@ function renderPostsShell() {
           <div>
             <p class="eyebrow">Posty</p>
             <h2>Komunitni zed</h2>
-            <p class="auth-copy">Rychle zpravy a fotky pro vybrany tyden ${escapeHtml(weekRangeLabel(state.weekStart))}.</p>
+            <p class="auth-copy">Rychle zpravy a fotky pro vybrany tyden ${escapeHtml(weekRangeLabel(state.weekStart))}. Pripnute posty zustanou ve vsech tydnech.</p>
           </div>
           <button class="btn" data-action="refresh-social">Refresh</button>
         </div>
@@ -1248,6 +1249,10 @@ function renderPostComposer() {
       <label class="field">
         <span>Novy post</span>
         <textarea class="input post-textarea" name="body" rows="3" maxlength="700" placeholder="Co chces poslat parte?"></textarea>
+      </label>
+      <label class="post-pin-option">
+        <input type="checkbox" name="pinned">
+        <span>Pripnout na kazdy tyden</span>
       </label>
       <div class="post-composer-actions">
         <label class="post-file-field">
@@ -1277,22 +1282,56 @@ function renderPostCard(post) {
   const profile = post.profile || {};
   const name = profile.display_name || profile.username || post.authorName || "Sportovec";
   const isOwn = post.user_id === cloud.session?.user?.id;
+  const isEditing = editingPostId === post.id && isOwn;
   return `
     <article class="post-card">
       <div class="post-head">
         <div>
-          <strong>${escapeHtml(name)}</strong>
+          <div class="post-author-line">
+            <strong>${escapeHtml(name)}</strong>
+            ${post.pinned ? `<span class="pill done">Pripnuto</span>` : ""}
+          </div>
           <span>${escapeHtml(formatCloudDate(post.created_at))}</span>
         </div>
-        ${isOwn ? `<button class="icon-btn danger" data-action="delete-community-post" data-post-id="${escapeAttr(post.id)}" title="Smazat post" aria-label="Smazat post">x</button>` : ""}
+        ${isOwn ? `
+          <div class="post-actions">
+            ${isEditing ? "" : `<button class="btn subtle" type="button" data-action="edit-community-post" data-post-id="${escapeAttr(post.id)}">Upravit</button>`}
+            <button class="icon-btn danger" data-action="delete-community-post" data-post-id="${escapeAttr(post.id)}" title="Smazat post" aria-label="Smazat post">x</button>
+          </div>
+        ` : ""}
       </div>
+      ${isEditing ? renderPostEditForm(post) : renderPostBody(post)}
+    </article>
+  `;
+}
+
+function renderPostBody(post) {
+  return `
       ${post.body ? `<p>${escapeHtml(post.body)}</p>` : ""}
       ${post.imageUrl ? `
         <button class="post-image" type="button" data-action="open-community-post-image" data-post-id="${escapeAttr(post.id)}" title="Otevrit fotku" aria-label="Otevrit fotku">
           <img src="${escapeAttr(post.imageUrl)}" alt="${escapeAttr(post.imageName || "Post fotka")}">
         </button>
       ` : ""}
-    </article>
+  `;
+}
+
+function renderPostEditForm(post) {
+  return `
+    <form class="post-edit-form" data-post-edit-form data-post-id="${escapeAttr(post.id)}">
+      <label class="field">
+        <span>Upravit post</span>
+        <textarea class="input post-textarea" name="body" rows="3" maxlength="700">${escapeHtml(post.body || "")}</textarea>
+      </label>
+      <label class="post-pin-option">
+        <input type="checkbox" name="pinned" ${post.pinned ? "checked" : ""}>
+        <span>Pripnout na kazdy tyden</span>
+      </label>
+      <div class="post-composer-actions">
+        <button class="btn" type="button" data-action="cancel-edit-community-post">Zrusit</button>
+        <button class="btn primary" type="submit">Ulozit</button>
+      </div>
+    </form>
   `;
 }
 
@@ -2551,6 +2590,18 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "edit-community-post") {
+    editingPostId = target.dataset.postId || "";
+    render();
+    return;
+  }
+
+  if (action === "cancel-edit-community-post") {
+    editingPostId = "";
+    render();
+    return;
+  }
+
   if (action === "clear-post-image") {
     clearPostImageSelection(target.closest("[data-post-form]"));
     return;
@@ -2969,6 +3020,12 @@ async function handleSubmit(event) {
   if (event.target.dataset.postForm !== undefined) {
     event.preventDefault();
     await createCommunityPost(event.target);
+    return;
+  }
+
+  if (event.target.dataset.postEditForm !== undefined) {
+    event.preventDefault();
+    await updateCommunityPost(event.target);
     return;
   }
 
@@ -4355,12 +4412,14 @@ async function loadSocialData() {
 
 async function loadCommunityPosts() {
   if (!cloud.client || !cloud.session) return;
+  const weekStart = state.weekStart;
   const { data, error } = await cloud.client
     .from("community_posts")
-    .select("id,user_id,week_start,body,image_storage_path,image_name,image_width,image_height,image_size,content_type,created_at,updated_at")
-    .eq("week_start", state.weekStart)
+    .select("id,user_id,week_start,pinned,body,image_storage_path,image_name,image_width,image_height,image_size,content_type,created_at,updated_at")
+    .or(`week_start.eq.${weekStart},pinned.eq.true`)
+    .order("pinned", { ascending: false })
     .order("created_at", { ascending: false })
-    .limit(50);
+    .limit(80);
 
   if (error) {
     if (!["42P01", "PGRST205", "PGRST204", "42703"].includes(error.code)) console.warn(error);
@@ -4390,6 +4449,7 @@ function communityPostFromRow(row, imageUrl = "") {
   return {
     ...row,
     week_start: row.week_start || state.weekStart,
+    pinned: Boolean(row.pinned),
     body: String(row.body || ""),
     imageUrl,
     imageName: row.image_name || "Post fotka",
@@ -4442,6 +4502,7 @@ async function createCommunityPost(formElement) {
 
   const form = new FormData(formElement);
   const body = String(form.get("body") || "").trim();
+  const pinned = form.get("pinned") === "on";
   const image = postComposerImageFile || form.get("image");
   const hasImage = image instanceof File && image.size > 0;
   if (!body && !hasImage) {
@@ -4471,6 +4532,7 @@ async function createCommunityPost(formElement) {
       .insert({
         user_id: cloud.session.user.id,
         week_start: state.weekStart,
+        pinned,
         body,
         image_storage_path: uploadedPath || null,
         image_name: prepared?.name || "",
@@ -4479,7 +4541,7 @@ async function createCommunityPost(formElement) {
         image_size: prepared?.blob?.size || 0,
         content_type: prepared ? "image/jpeg" : ""
       })
-      .select("id,user_id,week_start,body,image_storage_path,image_name,image_width,image_height,image_size,content_type,created_at,updated_at")
+      .select("id,user_id,week_start,pinned,body,image_storage_path,image_name,image_width,image_height,image_size,content_type,created_at,updated_at")
       .single();
 
     if (error) throw error;
@@ -4499,7 +4561,7 @@ async function createCommunityPost(formElement) {
     cloud.posts = [
       communityPostFromRow({ ...data, profile: cloud.profile || null }, signedUrl),
       ...cloud.posts
-    ].slice(0, 50);
+    ].sort(sortCommunityPosts).slice(0, 80);
     render();
     showToast("Post pridan.");
   } catch (error) {
@@ -4513,6 +4575,59 @@ async function createCommunityPost(formElement) {
     console.warn(error);
     showCloudError("Post se nepodarilo pridat.", error, "supabase-posts-patch.sql");
   }
+}
+
+async function updateCommunityPost(formElement) {
+  if (!cloud.client || !cloud.session) {
+    showToast("Pro upravu postu se nejdriv prihlas.");
+    return;
+  }
+
+  const postId = formElement.dataset.postId || "";
+  const post = cloud.posts.find((item) => item.id === postId);
+  if (!post || post.user_id !== cloud.session.user.id) return;
+
+  const form = new FormData(formElement);
+  const body = String(form.get("body") || "").trim();
+  const pinned = form.get("pinned") === "on";
+  if (!body && !post.image_storage_path) {
+    showToast("Post nemuze byt prazdny.");
+    return;
+  }
+
+  const { data, error } = await cloud.client
+    .from("community_posts")
+    .update({
+      body,
+      pinned,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", postId)
+    .eq("user_id", cloud.session.user.id)
+    .select("id,user_id,week_start,pinned,body,image_storage_path,image_name,image_width,image_height,image_size,content_type,created_at,updated_at")
+    .single();
+
+  if (error) {
+    showCloudError("Post se nepodarilo upravit.", error, "supabase-posts-patch.sql");
+    return;
+  }
+
+  const updatedPost = communityPostFromRow(
+    { ...data, profile: post.profile || cloud.profile || null },
+    post.imageUrl || ""
+  );
+  cloud.posts = cloud.posts
+    .map((item) => (item.id === postId ? updatedPost : item))
+    .filter((item) => item.pinned || item.week_start === state.weekStart)
+    .sort(sortCommunityPosts);
+  editingPostId = "";
+  render();
+  showToast("Post upraven.");
+}
+
+function sortCommunityPosts(a, b) {
+  if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+  return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
 }
 
 async function deleteCommunityPost(postId) {
@@ -4540,6 +4655,7 @@ async function deleteCommunityPost(postId) {
   }
 
   cloud.posts = cloud.posts.filter((item) => item.id !== postId);
+  if (editingPostId === postId) editingPostId = "";
   render();
   showToast("Post smazan.");
 }

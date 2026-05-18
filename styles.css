@@ -662,6 +662,28 @@ button.cloud-badge:hover {
   flex-wrap: wrap;
 }
 
+.post-pin-option {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: 100%;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--field-bg) 88%, var(--accent) 12%);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.post-pin-option input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
 .post-file-field {
   position: relative;
   min-height: 42px;
@@ -726,6 +748,21 @@ button.cloud-badge:hover {
   gap: 12px;
 }
 
+.post-author-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.post-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .post-head strong,
 .post-head span {
   display: block;
@@ -741,6 +778,15 @@ button.cloud-badge:hover {
   color: var(--ink);
   line-height: 1.55;
   white-space: pre-wrap;
+}
+
+.post-edit-form {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field-bg);
 }
 
 .post-image {
@@ -1996,6 +2042,13 @@ button.cloud-badge:hover {
   font-size: 0.78rem;
 }
 
+.btn.subtle {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
 .icon-btn {
   width: 40px;
   padding: 0;
@@ -2866,8 +2919,18 @@ button.cloud-badge:hover {
 
   .post-composer-actions,
   .post-composer-actions .btn,
-  .post-file-field {
+  .post-file-field,
+  .post-pin-option,
+  .post-actions {
     width: 100%;
+  }
+
+  .post-actions {
+    justify-content: stretch;
+  }
+
+  .post-actions .btn {
+    flex: 1;
   }
 
   .copy-dialog-head,
