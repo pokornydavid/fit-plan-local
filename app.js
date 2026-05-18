@@ -2,7 +2,7 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
-const APP_VERSION = "64";
+const APP_VERSION = "65";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -263,7 +263,7 @@ function snapshotVisibleCloudData() {
     phase,
     feed: cloud.feed.map((row) => `${row.user_id}:${row.week_start}:${row.day_index}:${row.updated_at}:${row.volume}:${row.completed_sets}:${row.total_sets}`),
     leaderboard: cloud.leaderboard.map((row) => `${row.user_id}:${row.totalVolume}:${row.trainingDays}:${row.completedSets}:${row.totalSets}`),
-    posts: cloud.posts.map((post) => `${post.id}:${post.updated_at}:${post.body}:${post.image_storage_path || ""}`)
+    posts: cloud.posts.map((post) => `${post.id}:${post.week_start || ""}:${post.updated_at}:${post.body}:${post.image_storage_path || ""}`)
   });
 }
 
@@ -4355,18 +4355,15 @@ async function loadSocialData() {
 
 async function loadCommunityPosts() {
   if (!cloud.client || !cloud.session) return;
-  const weekStartDate = parseDate(state.weekStart);
-  const weekEndDate = addDays(weekStartDate, 7);
   const { data, error } = await cloud.client
     .from("community_posts")
-    .select("id,user_id,body,image_storage_path,image_name,image_width,image_height,image_size,content_type,created_at,updated_at")
-    .gte("created_at", weekStartDate.toISOString())
-    .lt("created_at", weekEndDate.toISOString())
+    .select("id,user_id,week_start,body,image_storage_path,image_name,image_width,image_height,image_size,content_type,created_at,updated_at")
+    .eq("week_start", state.weekStart)
     .order("created_at", { ascending: false })
     .limit(50);
 
   if (error) {
-    if (!["42P01", "PGRST205"].includes(error.code)) console.warn(error);
+    if (!["42P01", "PGRST205", "PGRST204", "42703"].includes(error.code)) console.warn(error);
     cloud.posts = [];
     return;
   }
@@ -4392,6 +4389,7 @@ async function loadCommunityPosts() {
 function communityPostFromRow(row, imageUrl = "") {
   return {
     ...row,
+    week_start: row.week_start || state.weekStart,
     body: String(row.body || ""),
     imageUrl,
     imageName: row.image_name || "Post fotka",
@@ -4472,6 +4470,7 @@ async function createCommunityPost(formElement) {
       .from("community_posts")
       .insert({
         user_id: cloud.session.user.id,
+        week_start: state.weekStart,
         body,
         image_storage_path: uploadedPath || null,
         image_name: prepared?.name || "",
@@ -4480,7 +4479,7 @@ async function createCommunityPost(formElement) {
         image_size: prepared?.blob?.size || 0,
         content_type: prepared ? "image/jpeg" : ""
       })
-      .select("id,user_id,body,image_storage_path,image_name,image_width,image_height,image_size,content_type,created_at,updated_at")
+      .select("id,user_id,week_start,body,image_storage_path,image_name,image_width,image_height,image_size,content_type,created_at,updated_at")
       .single();
 
     if (error) throw error;
@@ -5648,8 +5647,10 @@ function showToast(message) {
 function showCloudError(prefix, error, patchFile = "supabase-progress-photos.sql") {
   const rawMessage = String(error?.message || "");
   const lowerMessage = rawMessage.toLowerCase();
-  const needsSqlPatch = ["PGRST205", "42P01"].includes(error?.code) ||
+  const needsSqlPatch = ["PGRST205", "PGRST204", "42P01", "42703"].includes(error?.code) ||
     lowerMessage.includes("bucket not found") ||
+    lowerMessage.includes("schema cache") ||
+    lowerMessage.includes("column") ||
     lowerMessage.includes("row-level security") ||
     lowerMessage.includes("violates row-level security");
   const message = needsSqlPatch

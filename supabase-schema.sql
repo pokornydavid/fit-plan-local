@@ -312,6 +312,7 @@ set
 create table if not exists public.community_posts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
+  week_start date not null default date_trunc('week', now() at time zone 'Europe/Prague')::date,
   body text not null default '',
   image_storage_path text,
   image_name text not null default '',
@@ -323,6 +324,17 @@ create table if not exists public.community_posts (
   updated_at timestamptz not null default now(),
   check (body <> '' or image_storage_path is not null)
 );
+
+alter table public.community_posts
+  add column if not exists week_start date;
+
+update public.community_posts
+set week_start = date_trunc('week', created_at at time zone 'Europe/Prague')::date
+where week_start is null;
+
+alter table public.community_posts
+  alter column week_start set default date_trunc('week', now() at time zone 'Europe/Prague')::date,
+  alter column week_start set not null;
 
 alter table public.community_posts enable row level security;
 
@@ -354,6 +366,9 @@ create policy "users delete own community posts"
 
 create index if not exists community_posts_recent_idx
   on public.community_posts (created_at desc);
+
+create index if not exists community_posts_week_recent_idx
+  on public.community_posts (week_start, created_at desc);
 
 create index if not exists community_posts_user_recent_idx
   on public.community_posts (user_id, created_at desc);
