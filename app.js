@@ -2,7 +2,7 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
-const APP_VERSION = "68";
+const APP_VERSION = "69";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -647,6 +647,57 @@ function normalizeNutritionWeek(nutrition) {
       };
     })
   };
+}
+
+function mergeNutritionWeeks(localNutrition, cloudNutrition) {
+  const localWeek = normalizeNutritionWeek(localNutrition);
+  const cloudWeek = normalizeNutritionWeek(cloudNutrition);
+  const localGoalsChanged = nutritionGoalsChanged(localWeek.goals);
+  const cloudGoalsChanged = nutritionGoalsChanged(cloudWeek.goals);
+  return {
+    goals: localGoalsChanged || !cloudGoalsChanged
+      ? { ...localWeek.goals }
+      : { ...cloudWeek.goals },
+    lastCheatMeal: localWeek.lastCheatMeal || cloudWeek.lastCheatMeal,
+    days: DAY_LABELS.map((_, index) => mergeNutritionDay(localWeek.days[index], cloudWeek.days[index]))
+  };
+}
+
+function mergeNutritionDay(localDay, cloudDay) {
+  const local = normalizeNutritionWeek({ days: [localDay || {}] }).days[0];
+  const cloud = normalizeNutritionWeek({ days: [cloudDay || {}] }).days[0];
+  const localFields = nutritionDayFieldCount(local);
+  const cloudFields = nutritionDayFieldCount(cloud);
+  if (!localFields) return { ...cloud };
+  if (!cloudFields) return { ...local };
+  return {
+    calories: hasNutritionDayField(local, "calories") ? local.calories : cloud.calories,
+    protein: hasNutritionDayField(local, "protein") ? local.protein : cloud.protein,
+    carbs: hasNutritionDayField(local, "carbs") ? local.carbs : cloud.carbs,
+    fat: hasNutritionDayField(local, "fat") ? local.fat : cloud.fat,
+    weight: hasNutritionDayField(local, "weight") ? local.weight : cloud.weight,
+    notes: hasNutritionDayField(local, "notes") ? local.notes : cloud.notes
+  };
+}
+
+function nutritionWeeksEqual(a, b) {
+  return JSON.stringify(normalizeNutritionWeek(a)) === JSON.stringify(normalizeNutritionWeek(b));
+}
+
+function nutritionGoalsChanged(goals) {
+  const defaults = createNutritionWeek().goals;
+  return Object.keys(defaults).some((key) => toNumber(goals?.[key], 0) !== defaults[key]);
+}
+
+function hasNutritionDayField(day, key) {
+  const value = day?.[key];
+  if (key === "notes") return Boolean(String(value || "").trim());
+  return value !== "" && value !== null && value !== undefined;
+}
+
+function nutritionDayFieldCount(day) {
+  return ["calories", "protein", "carbs", "fat", "weight", "notes"]
+    .filter((key) => hasNutritionDayField(day, key)).length;
 }
 
 function normalizeVisibility(value) {
@@ -4276,13 +4327,28 @@ async function loadCloudNutritionWeek() {
 
   if (!data) {
     const localNutrition = ensureNutritionWeek();
-    if (hasNutritionData(localNutrition)) await saveNutritionToCloud();
+    if (hasNutritionWeekContent(localNutrition)) await saveNutritionToCloud();
     await loadCloudNutritionPhase();
     await loadCloudPhasePhotos();
     await syncLocalPhasePhotosToCloud();
     return;
   }
-  state.nutrition[state.weekStart] = normalizeNutritionWeek(data.payload);
+  const cloudNutrition = normalizeNutritionWeek(data.payload);
+  const localNutrition = state.nutrition[state.weekStart]
+    ? normalizeNutritionWeek(state.nutrition[state.weekStart])
+    : null;
+  const mergedNutrition = localNutrition
+    ? mergeNutritionWeeks(localNutrition, cloudNutrition)
+    : cloudNutrition;
+  state.nutrition[state.weekStart] = mergedNutrition;
+  if (
+    localNutrition &&
+    !nutritionWeeksEqual(mergedNutrition, cloudNutrition) &&
+    hasNutritionWeekContent(mergedNutrition)
+  ) {
+    markPendingNutritionSync(state.weekStart);
+    await flushPendingSync();
+  }
   await loadCloudNutritionPhase(data.payload?.phase);
   await loadCloudPhasePhotos();
   await syncLocalPhasePhotosToCloud();
@@ -5196,13 +5262,25 @@ async function saveNutritionWeekToCloud(weekStart, expectedPendingUpdatedAt = nu
     if (existing && isCloudRowNewer(existing.updated_at, expectedPendingUpdatedAt)) {
       if (weekStart === NUTRITION_PHASE_WEEK_START) {
         state.nutritionPhase = normalizeNutritionPhase(existing.payload?.phase);
+        clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
+        saveLocal();
+        return;
       } else {
-        state.nutrition[weekStart] = normalizeNutritionWeek(existing.payload);
+        const cloudNutrition = normalizeNutritionWeek(existing.payload);
+        const localNutrition = state.nutrition[weekStart]
+          ? normalizeNutritionWeek(state.nutrition[weekStart])
+          : createNutritionWeek();
+        const mergedNutrition = mergeNutritionWeeks(localNutrition, cloudNutrition);
+        state.nutrition[weekStart] = mergedNutrition;
+        if (nutritionWeeksEqual(mergedNutrition, cloudNutrition)) {
+          if (existing.payload?.phase) state.nutritionPhase = normalizeNutritionPhase(existing.payload.phase);
+          clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
+          saveLocal();
+          return;
+        }
         if (existing.payload?.phase) state.nutritionPhase = normalizeNutritionPhase(existing.payload.phase);
       }
-      clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
       saveLocal();
-      return;
     }
   }
 
@@ -5777,19 +5855,14 @@ function summarizeNutritionPhase(phase) {
 }
 
 function hasNutritionData(nutrition) {
-  const defaults = createNutritionWeek();
-  const goals = nutrition.goals || {};
-  const goalsChanged = Object.keys(defaults.goals)
-    .some((key) => toNumber(goals[key], 0) !== defaults.goals[key]);
-  const hasDayData = (nutrition.days || []).some((day) => (
-    ["calories", "protein", "carbs", "fat", "weight"].some((key) => {
-      const value = day[key];
-      return value !== "" && value !== null && value !== undefined;
-    }) || String(day.notes || "").trim()
-  ));
   const hasPhaseData = hasNutritionPhaseData(state.nutritionPhase);
+  return hasNutritionWeekContent(nutrition) || hasPhaseData;
+}
 
-  return goalsChanged || hasDayData || hasPhaseData || Boolean(nutrition.lastCheatMeal);
+function hasNutritionWeekContent(nutrition) {
+  const normalized = normalizeNutritionWeek(nutrition);
+  const hasDayData = normalized.days.some((day) => nutritionDayFieldCount(day) > 0);
+  return nutritionGoalsChanged(normalized.goals) || hasDayData || Boolean(normalized.lastCheatMeal);
 }
 
 function hasNutritionPhaseData(phaseValue) {
