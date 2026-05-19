@@ -2,7 +2,7 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
-const APP_VERSION = "66";
+const APP_VERSION = "67";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -4389,6 +4389,7 @@ function findExistingCloudPhasePhoto(record) {
 
 function cloudPhasePhotoFromRow(record, url) {
   const existing = findExistingCloudPhasePhoto(record);
+  const freshUrl = String(url || "");
   return {
     id: record.id || uid(),
     cloudId: record.id || "",
@@ -4396,8 +4397,8 @@ function cloudPhasePhotoFromRow(record, url) {
     weekLabel: record.week_label || "",
     name: record.file_name || "Posing photo",
     addedAt: record.created_at || new Date().toISOString(),
-    dataUrl: "",
-    url: existing?.url || url,
+    dataUrl: freshUrl ? "" : existing?.dataUrl || "",
+    url: freshUrl || existing?.url || "",
     storagePath: record.storage_path || "",
     width: toNumber(record.width, 0),
     height: toNumber(record.height, 0),
