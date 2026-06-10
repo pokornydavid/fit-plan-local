@@ -2,7 +2,7 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
-const APP_VERSION = "69";
+const APP_VERSION = "70";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -4236,15 +4236,7 @@ async function loadCloudWeek() {
   }
 
   if (!data?.length) {
-    const localWeek = state.weeks[state.weekStart] || createBlankWeek();
-    if (weekHasCloudContent(localWeek)) {
-      DAY_LABELS.forEach((_, dayIndex) => {
-        if (hasDayCloudContent(localWeek[dayIndex])) {
-          markPendingWorkoutSync(state.weekStart, dayIndex);
-        }
-      });
-      await flushPendingSync();
-    } else if (!hasPendingWorkoutsForWeek(state.weekStart)) {
+    if (!hasPendingWorkoutsForWeek(state.weekStart)) {
       state.weeks[state.weekStart] = createBlankWeek();
     }
     return;
@@ -4266,27 +4258,9 @@ function mergeCloudWeekWithPendingLocal(weekStart, cloudWeek) {
   DAY_LABELS.forEach((_, dayIndex) => {
     const pendingKey = workoutPendingKey(weekStart, dayIndex);
     const hasPending = Boolean(pendingSync.workouts[pendingKey]);
-    const keepLocal = hasPending || shouldKeepLocalWorkout(localWeek[dayIndex], cloudWeek[dayIndex]);
-    mergedWeek[dayIndex] = keepLocal ? localWeek[dayIndex] : cloudWeek[dayIndex];
-    if (keepLocal && !hasPending && hasDayCloudContent(localWeek[dayIndex])) {
-      markPendingWorkoutSync(weekStart, dayIndex);
-    }
+    mergedWeek[dayIndex] = hasPending ? localWeek[dayIndex] : cloudWeek[dayIndex];
   });
   return mergedWeek;
-}
-
-function weekHasCloudContent(week) {
-  return DAY_LABELS.some((_, dayIndex) => hasDayCloudContent(week?.[dayIndex]));
-}
-
-function shouldKeepLocalWorkout(localDay, cloudDay) {
-  const localStats = workoutContentStats(localDay);
-  const cloudStats = workoutContentStats(cloudDay);
-  if (!localStats.hasContent) return false;
-  if (!cloudStats.hasContent) return true;
-  return localStats.exerciseCount > cloudStats.exerciseCount ||
-    localStats.totalSets > cloudStats.totalSets ||
-    localStats.completedSets > cloudStats.completedSets;
 }
 
 async function loadCloudWeekByStart(weekStart) {
