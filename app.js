@@ -2,7 +2,7 @@ const STORAGE_KEY = "fit-plan-local-v1";
 const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
-const APP_VERSION = "70";
+const APP_VERSION = "71";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -458,10 +458,12 @@ function workoutPendingKey(weekStart, dayIndex) {
 }
 
 function markPendingWorkoutSync(weekStart = state.weekStart, dayIndex = state.selectedDay) {
+  const day = state.weeks?.[weekStart]?.[dayIndex];
   pendingSync.workouts[workoutPendingKey(weekStart, dayIndex)] = {
     weekStart,
     dayIndex: Number(dayIndex),
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
+    fingerprint: workoutDayFingerprint(day)
   };
   savePendingSync();
 }
@@ -2691,6 +2693,9 @@ async function handleClick(event) {
     state.selectedDay = Number(target.dataset.day);
     saveLocal();
     render();
+    await loadCloudWeek();
+    saveLocal();
+    render();
     return;
   }
 
@@ -4217,9 +4222,6 @@ async function loadCloudData() {
 
 async function loadCloudWeek() {
   if (!cloud.client || !cloud.session) return;
-  if (!flushingPendingSync && hasPendingWorkoutsForWeek(state.weekStart)) {
-    await flushPendingSync();
-  }
   cloud.loading = true;
   const { data, error } = await cloud.client
     .from("workout_days")
@@ -4236,7 +4238,17 @@ async function loadCloudWeek() {
   }
 
   if (!data?.length) {
-    if (!hasPendingWorkoutsForWeek(state.weekStart)) {
+    const localWeek = state.weeks[state.weekStart] || createBlankWeek();
+    if (hasPendingWorkoutsForWeek(state.weekStart)) {
+      await flushPendingSync();
+    } else if (weekHasSyncableLocalProgress(localWeek)) {
+      DAY_LABELS.forEach((_, dayIndex) => {
+        if (shouldPushLocalWorkout(localWeek[dayIndex], null)) {
+          markPendingWorkoutSync(state.weekStart, dayIndex);
+        }
+      });
+      await flushPendingSync();
+    } else if (!hasPendingWorkoutsForWeek(state.weekStart)) {
       state.weeks[state.weekStart] = createBlankWeek();
     }
     return;
@@ -4245,22 +4257,58 @@ async function loadCloudWeek() {
   data.forEach((row) => {
     week[row.day_index] = rowToDay(row);
   });
-  state.weeks[state.weekStart] = mergeCloudWeekWithPendingLocal(state.weekStart, week);
+  const rowsByDay = new Map(data.map((row) => [Number(row.day_index), row]));
+  state.weeks[state.weekStart] = mergeCloudWeekWithPendingLocal(state.weekStart, week, rowsByDay);
   data
     .filter((row) => row.visibility === "friends")
     .forEach((row) => markPendingWorkoutSync(row.week_start, row.day_index));
   await flushPendingSync();
 }
 
-function mergeCloudWeekWithPendingLocal(weekStart, cloudWeek) {
+function mergeCloudWeekWithPendingLocal(weekStart, cloudWeek, cloudRowsByDay = new Map()) {
   const localWeek = state.weeks[weekStart] || createBlankWeek();
   const mergedWeek = createBlankWeek();
   DAY_LABELS.forEach((_, dayIndex) => {
     const pendingKey = workoutPendingKey(weekStart, dayIndex);
-    const hasPending = Boolean(pendingSync.workouts[pendingKey]);
-    mergedWeek[dayIndex] = hasPending ? localWeek[dayIndex] : cloudWeek[dayIndex];
+    const pending = pendingSync.workouts[pendingKey] || null;
+    const localDay = localWeek[dayIndex];
+    const cloudDay = cloudWeek[dayIndex];
+    const cloudRow = cloudRowsByDay.get(dayIndex) || null;
+    const localShouldWin = shouldKeepLocalWorkout(localDay, cloudDay, pending, cloudRow);
+    mergedWeek[dayIndex] = localShouldWin ? localDay : cloudDay;
+    if (localShouldWin && shouldPushLocalWorkout(localDay, cloudDay)) {
+      markPendingWorkoutSync(weekStart, dayIndex);
+    } else if (!localShouldWin && pending) {
+      clearPendingWorkoutSync(weekStart, dayIndex);
+    }
   });
   return mergedWeek;
+}
+
+function weekHasSyncableLocalProgress(week) {
+  return DAY_LABELS.some((_, dayIndex) => shouldPushLocalWorkout(week?.[dayIndex], null));
+}
+
+function shouldKeepLocalWorkout(localDay, cloudDay, pending = null, cloudRow = null) {
+  const localStats = workoutContentStats(localDay);
+  const cloudStats = workoutContentStats(cloudDay);
+  if (!localStats.hasContent) return Boolean(pending?.fingerprint && !cloudStats.hasContent);
+  if (!cloudStats.hasContent) return true;
+  if (localStats.completedSets !== cloudStats.completedSets) {
+    return localStats.completedSets > cloudStats.completedSets;
+  }
+  if (pending?.fingerprint && cloudRow && !isCloudRowNewer(cloudRow.updated_at, pending.updatedAt)) {
+    return true;
+  }
+  return false;
+}
+
+function shouldPushLocalWorkout(localDay, cloudDay) {
+  const localStats = workoutContentStats(localDay);
+  const cloudStats = workoutContentStats(cloudDay);
+  if (!localStats.hasContent) return false;
+  if (!cloudStats.hasContent) return true;
+  return localStats.completedSets > cloudStats.completedSets;
 }
 
 async function loadCloudWeekByStart(weekStart) {
@@ -4996,13 +5044,14 @@ async function saveSelectedDayToCloud() {
 
 async function saveDayToCloud(weekStart, dayIndex, expectedPendingUpdatedAt = null) {
   if (!cloud.client || !cloud.session) return;
+  const pendingKey = workoutPendingKey(weekStart, dayIndex);
+  const pending = expectedPendingUpdatedAt ? pendingSync.workouts[pendingKey] || null : null;
   const day = state.weeks[weekStart]?.[dayIndex];
   if (expectedPendingUpdatedAt) {
     const existing = await fetchExistingWorkoutDay(weekStart, dayIndex);
     if (
       existing &&
-      isCloudRowNewer(existing.updated_at, expectedPendingUpdatedAt) &&
-      shouldUseCloudWorkoutOverLocal(day, existing)
+      shouldUseCloudWorkoutOverLocal(day, existing, pending, expectedPendingUpdatedAt)
     ) {
       if (!state.weeks[weekStart]) state.weeks[weekStart] = createBlankWeek();
       state.weeks[weekStart][dayIndex] = rowToDay(existing);
@@ -5194,7 +5243,7 @@ function hasDayCloudContent(day) {
 
 function workoutContentStats(day) {
   if (!day) {
-    return { hasContent: false, exerciseCount: 0, totalSets: 0, completedSets: 0 };
+    return { hasContent: false, exerciseCount: 0, totalSets: 0, completedSets: 0, volume: 0 };
   }
   const exercises = Array.isArray(day.exercises) ? day.exercises : [];
   const totalSets = exercises.reduce((sum, exercise) => (
@@ -5212,17 +5261,43 @@ function workoutContentStats(day) {
     hasContent: hasText || exercises.length > 0,
     exerciseCount: exercises.length,
     totalSets,
-    completedSets
+    completedSets,
+    volume: exercises.reduce((sum, exercise) => sum + summarizeExerciseVolume(exercise), 0)
   };
 }
 
-function shouldUseCloudWorkoutOverLocal(localDay, cloudRow) {
+function workoutDayFingerprint(day) {
+  if (!day) return "";
+  const normalized = normalizeWeek({ 0: day })[0];
+  return JSON.stringify({
+    title: normalized.title,
+    focus: normalized.focus,
+    notes: normalized.notes,
+    visibility: normalizeVisibility(normalized.visibility),
+    exercises: normalized.exercises.map((exercise) => ({
+      name: exercise.name,
+      muscle: exercise.muscle,
+      notes: exercise.notes,
+      sets: exercise.sets.map((set) => ({
+        reps: toNumber(set.reps, 0),
+        weight: toNumber(set.weight, 0),
+        rpe: toNumber(set.rpe, 0),
+        done: Boolean(set.done)
+      }))
+    }))
+  });
+}
+
+function shouldUseCloudWorkoutOverLocal(localDay, cloudRow, pending = null, expectedPendingUpdatedAt = "") {
   const localStats = workoutContentStats(localDay);
   const cloudStats = workoutContentStats(rowToDay(cloudRow));
-  if (!localStats.hasContent) return false;
-  return cloudStats.exerciseCount > localStats.exerciseCount ||
-    cloudStats.totalSets > localStats.totalSets ||
-    cloudStats.completedSets > localStats.completedSets;
+  if (!localStats.hasContent) return !pending?.fingerprint;
+  if (!cloudStats.hasContent) return false;
+  if (cloudStats.completedSets !== localStats.completedSets) {
+    return cloudStats.completedSets > localStats.completedSets;
+  }
+  if (!pending?.fingerprint) return true;
+  return isCloudRowNewer(cloudRow.updated_at, expectedPendingUpdatedAt);
 }
 
 async function saveNutritionToCloud() {
