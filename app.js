@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "72";
+const APP_VERSION = "73";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -123,8 +123,8 @@ async function boot() {
   render();
   await initSupabase();
   if (cloud.session) {
-    await flushPendingSync();
     await loadCloudData();
+    await flushPendingSync();
     saveLocal();
   }
   startCloudAutoRefresh();
@@ -222,10 +222,10 @@ async function refreshCloudDataIfIdle({ force = false } = {}) {
 
   cloudRefreshInFlight = true;
   try {
-    await flushPendingSync();
-    if (hasAnyPendingSync()) return;
     const beforeRefresh = snapshotVisibleCloudData();
     await loadCloudData();
+    await flushPendingSync();
+    if (hasAnyPendingSync()) return;
     const afterRefresh = snapshotVisibleCloudData();
     saveLocal();
     if (beforeRefresh !== afterRefresh) render();
@@ -357,6 +357,7 @@ function normalizeWeek(week) {
       focus: String(source.focus || ""),
       notes: String(source.notes || ""),
       visibility: normalizeVisibility(source.visibility),
+      lastEditedAt: normalizeIsoTimestamp(source.lastEditedAt || source.updatedAt || ""),
       exercises: Array.isArray(source.exercises)
         ? source.exercises.map(normalizeExercise)
         : []
@@ -388,13 +389,30 @@ function normalizeSet(set) {
 }
 
 function save() {
-  saveLocal();
   if (state.activeView === "nutrition") {
+    saveLocal();
     markPendingNutritionSync();
     scheduleNutritionSync();
     return;
   }
+  const shouldSyncWorkout = state.activeView === "plan";
+  if (shouldSyncWorkout) touchWorkoutDay();
+  saveLocal();
+  if (!shouldSyncWorkout) return;
   markPendingWorkoutSync();
+  scheduleCloudSync();
+}
+
+function saveWorkoutWeek(weekStart = state.weekStart) {
+  const week = state.weeks[weekStart] || createBlankWeek();
+  state.weeks[weekStart] = week;
+  const now = new Date().toISOString();
+  DAY_LABELS.forEach((_, dayIndex) => {
+    if (!hasDayPlanData(week[dayIndex])) return;
+    touchWorkoutDay(weekStart, dayIndex, now);
+    markPendingWorkoutSync(weekStart, dayIndex);
+  });
+  saveLocal();
   scheduleCloudSync();
 }
 
@@ -458,12 +476,51 @@ function workoutPendingKey(weekStart, dayIndex) {
   return `${weekStart}:${dayIndex}`;
 }
 
+function normalizeIsoTimestamp(value) {
+  const time = new Date(value || 0).getTime();
+  return time ? new Date(time).toISOString() : "";
+}
+
+function timestampMs(value) {
+  return new Date(value || 0).getTime() || 0;
+}
+
+function dayEditedAt(day) {
+  return normalizeIsoTimestamp(day?.lastEditedAt || "");
+}
+
+function dayEditedTime(day) {
+  return timestampMs(dayEditedAt(day));
+}
+
+function pendingEditedTime(pending) {
+  return timestampMs(pending?.updatedAt || "");
+}
+
+function cloudRowEditedAt(row) {
+  return normalizeIsoTimestamp(row?.payload?.lastEditedAt || row?.payload?.updatedAt || row?.updated_at || "");
+}
+
+function cloudRowEditedTime(row) {
+  return timestampMs(cloudRowEditedAt(row));
+}
+
+function touchWorkoutDay(weekStart = state.weekStart, dayIndex = state.selectedDay, at = new Date().toISOString()) {
+  if (!state.weeks[weekStart]) state.weeks[weekStart] = createBlankWeek();
+  const week = state.weeks[weekStart];
+  const normalizedDayIndex = Math.max(0, Math.min(6, Number(dayIndex) || 0));
+  if (!week[normalizedDayIndex]) week[normalizedDayIndex] = createBlankWeek()[normalizedDayIndex];
+  week[normalizedDayIndex].lastEditedAt = normalizeIsoTimestamp(at) || new Date().toISOString();
+  return week[normalizedDayIndex];
+}
+
 function markPendingWorkoutSync(weekStart = state.weekStart, dayIndex = state.selectedDay) {
   const day = state.weeks?.[weekStart]?.[dayIndex];
+  const updatedAt = dayEditedAt(day) || new Date().toISOString();
   pendingSync.workouts[workoutPendingKey(weekStart, dayIndex)] = {
     weekStart,
     dayIndex: Number(dayIndex),
-    updatedAt: new Date().toISOString(),
+    updatedAt,
     fingerprint: workoutDayFingerprint(day)
   };
   savePendingSync();
@@ -576,6 +633,7 @@ function createBlankWeek() {
         focus: "",
         notes: "",
         visibility: "public",
+        lastEditedAt: "",
         exercises: []
       }
     ])
@@ -2566,8 +2624,8 @@ async function handleClick(event) {
     render();
     await initSupabase();
     if (cloud.session) {
-      await flushPendingSync();
       await loadCloudData();
+      await flushPendingSync();
       saveLocal();
     }
     render();
@@ -2587,10 +2645,10 @@ async function handleClick(event) {
     state.activeView = nextView;
     saveLocal();
     render();
-    await flushPendingSync();
     if (nextView === "nutrition") await loadCloudNutritionWeek();
     if (nextView === "feed") await loadCloudWeek();
     if (nextView === "feed" || nextView === "posts" || nextView === "leaderboard") await loadSocialData();
+    await flushPendingSync();
     if (nextView === "nutrition") saveLocal();
     render();
     return;
@@ -2623,6 +2681,7 @@ async function handleClick(event) {
   }
 
   if (action === "refresh-social") {
+    await loadCloudWeek();
     await flushPendingSync();
     await loadSocialData();
     render();
@@ -2678,8 +2737,8 @@ async function handleClick(event) {
     cloud.feed = cloud.feed.filter(isSelectedFeedRow);
     saveLocal();
     render();
-    await flushPendingSync();
     await loadCloudWeek();
+    await flushPendingSync();
     await loadFeed();
     saveLocal();
     render();
@@ -2725,10 +2784,10 @@ async function handleClick(event) {
     ensureNutritionWeek();
     saveLocal();
     render();
-    await flushPendingSync();
     await loadCloudWeek();
     await loadCloudNutritionWeek();
     await loadSocialData();
+    await flushPendingSync();
     saveLocal();
     render();
     return;
@@ -2743,10 +2802,10 @@ async function handleClick(event) {
     cloud.feed = cloud.feed.filter(isSelectedFeedRow);
     saveLocal();
     render();
-    await flushPendingSync();
     await loadCloudWeek();
     await loadCloudNutritionWeek();
     await loadSocialData();
+    await flushPendingSync();
     saveLocal();
     render();
     return;
@@ -2918,7 +2977,7 @@ async function handleClick(event) {
   if (action === "sample-week") {
     if (!confirm("Prepsat aktualni tyden ukazkovym planem?")) return;
     state.weeks[state.weekStart] = createSampleWeek();
-    save();
+    saveWorkoutWeek();
     render();
     showToast("Ukazkovy plan nahran.");
     return;
@@ -3005,7 +3064,7 @@ async function handleClick(event) {
   if (action === "template-ppl") {
     if (!confirm("Prepsat aktualni tyden sablonou PPL?")) return;
     state.weeks[state.weekStart] = createSampleWeek();
-    save();
+    saveWorkoutWeek();
     render();
     return;
   }
@@ -3013,7 +3072,7 @@ async function handleClick(event) {
   if (action === "template-fullbody") {
     if (!confirm("Prepsat aktualni tyden full body sablonou?")) return;
     state.weeks[state.weekStart] = createFullBodyWeek();
-    save();
+    saveWorkoutWeek();
     render();
     return;
   }
@@ -3243,8 +3302,8 @@ async function finishSignedInSession(session, toastMessage = "") {
   }
   await ensureProfile();
   if (!cloud.passwordRecovery) {
-    await flushPendingSync();
     await loadCloudData();
+    await flushPendingSync();
     saveLocal();
     if (toastMessage) showToast(toastMessage);
   }
@@ -4283,13 +4342,13 @@ function shouldKeepLocalWorkout(localDay, cloudDay, pending = null, cloudRow = n
   const localStats = workoutContentStats(localDay);
   const cloudStats = workoutContentStats(cloudDay);
   if (!localStats.hasContent) return Boolean(pending?.fingerprint && !cloudStats.hasContent);
+  if (!pending?.fingerprint) return false;
   if (!cloudStats.hasContent) return true;
-  if (localStats.completedSets !== cloudStats.completedSets) {
-    return localStats.completedSets > cloudStats.completedSets;
-  }
-  if (pending?.fingerprint && cloudRow && !isCloudRowNewer(cloudRow.updated_at, pending.updatedAt)) {
-    return true;
-  }
+
+  const localTime = dayEditedTime(localDay) || pendingEditedTime(pending);
+  const cloudTime = dayEditedTime(cloudDay) || cloudRowEditedTime(cloudRow);
+  if (localTime && cloudTime) return localTime >= cloudTime - 1000;
+  if (localTime && !cloudTime) return true;
   return false;
 }
 
@@ -4793,7 +4852,7 @@ async function loadFeed() {
   cloud.feed = cloud.feed.filter((row) => isFeedRowFor(row, weekStart, dayIndex));
   const { data, error } = await cloud.client
     .from("workout_days")
-    .select("id,user_id,week_start,day_index,title,focus,payload,volume,completed_sets,total_sets,updated_at")
+    .select("id,user_id,week_start,day_index,title,focus,notes,visibility,payload,volume,completed_sets,total_sets,updated_at")
     .eq("visibility", "public")
     .eq("week_start", weekStart)
     .eq("day_index", dayIndex)
@@ -4816,7 +4875,7 @@ async function loadLeaderboard() {
     loadLeaderboardProfiles(),
     cloud.client
       .from("workout_days")
-      .select("id,user_id,week_start,day_index,title,focus,payload,volume,completed_sets,total_sets,updated_at")
+      .select("id,user_id,week_start,day_index,title,focus,notes,visibility,payload,volume,completed_sets,total_sets,updated_at")
       .eq("visibility", "public")
       .eq("week_start", state.weekStart)
       .gt("total_sets", 0)
@@ -5056,8 +5115,11 @@ async function saveDayToCloud(weekStart, dayIndex, expectedPendingUpdatedAt = nu
     return;
   }
 
+  const payloadLastEditedAt = dayEditedAt(day) || expectedPendingUpdatedAt || new Date().toISOString();
+  day.lastEditedAt = normalizeIsoTimestamp(payloadLastEditedAt) || payloadLastEditedAt;
   const payload = {
-    exercises: day.exercises
+    exercises: day.exercises,
+    lastEditedAt: day.lastEditedAt
   };
 
   const { data, error } = await cloud.client
@@ -5076,18 +5138,19 @@ async function saveDayToCloud(weekStart, dayIndex, expectedPendingUpdatedAt = nu
       total_sets: summary.totalSets,
       updated_at: new Date().toISOString()
     }, { onConflict: "user_id,week_start,day_index" })
-    .select("id,user_id,week_start,day_index,title,focus,visibility,payload,volume,completed_sets,total_sets,updated_at")
+    .select("id,user_id,week_start,day_index,title,focus,notes,visibility,payload,volume,completed_sets,total_sets,updated_at")
     .single();
 
   if (error) throw error;
   updateFeedCacheRow(data);
   clearPendingWorkoutSyncIfCurrent(weekStart, dayIndex, expectedPendingUpdatedAt);
+  saveLocal();
 }
 
 async function fetchExistingWorkoutDay(weekStart, dayIndex) {
   const { data, error } = await cloud.client
     .from("workout_days")
-    .select("id,user_id,week_start,day_index,title,focus,visibility,payload,volume,completed_sets,total_sets,updated_at")
+    .select("id,user_id,week_start,day_index,title,focus,notes,visibility,payload,volume,completed_sets,total_sets,updated_at")
     .eq("user_id", cloud.session.user.id)
     .eq("week_start", weekStart)
     .eq("day_index", Number(dayIndex))
@@ -5171,11 +5234,11 @@ function createLocalSelectedFeedRow() {
     day_index: state.selectedDay,
     title: day.title || "",
     focus: day.focus || "",
-    payload: { exercises: day.exercises },
+    payload: { exercises: day.exercises, lastEditedAt: dayEditedAt(day) },
     volume: summary.volume,
     completed_sets: summary.completed,
     total_sets: summary.totalSets,
-    updated_at: pendingSync.workouts[pendingKey]?.updatedAt || existing?.updated_at || new Date().toISOString(),
+    updated_at: dayEditedAt(day) || pendingSync.workouts[pendingKey]?.updatedAt || existing?.updated_at || new Date().toISOString(),
     profile: cloud.profile || existing?.profile || null
   };
 }
@@ -5209,6 +5272,7 @@ function rowToDay(row) {
       focus: row.focus,
       notes: row.notes,
       visibility: normalizeVisibility(row.visibility),
+      lastEditedAt: row.payload?.lastEditedAt || row.payload?.updatedAt || row.updated_at,
       exercises: row.payload?.exercises || []
     }
   })[0];
@@ -5273,14 +5337,17 @@ function workoutDayFingerprint(day) {
 
 function shouldUseCloudWorkoutOverLocal(localDay, cloudRow, pending = null, expectedPendingUpdatedAt = "") {
   const localStats = workoutContentStats(localDay);
-  const cloudStats = workoutContentStats(rowToDay(cloudRow));
+  const cloudDay = rowToDay(cloudRow);
+  const cloudStats = workoutContentStats(cloudDay);
   if (!localStats.hasContent) return !pending?.fingerprint;
   if (!cloudStats.hasContent) return false;
-  if (cloudStats.completedSets !== localStats.completedSets) {
-    return cloudStats.completedSets > localStats.completedSets;
-  }
+
+  const localTime = dayEditedTime(localDay) || timestampMs(expectedPendingUpdatedAt) || pendingEditedTime(pending);
+  const cloudTime = dayEditedTime(cloudDay) || cloudRowEditedTime(cloudRow);
+  if (localTime && cloudTime) return cloudTime > localTime + 1000;
+  if (localTime && !cloudTime) return false;
   if (!pending?.fingerprint) return true;
-  return isCloudRowNewer(cloudRow.updated_at, expectedPendingUpdatedAt);
+  return false;
 }
 
 async function saveNutritionToCloud() {
@@ -5504,15 +5571,7 @@ async function loadWeekForCopy(weekStart) {
     return;
   }
 
-  const localWeek = state.weeks[weekStart] || createBlankWeek();
-  const mergedWeek = createBlankWeek();
-  DAY_LABELS.forEach((_, dayIndex) => {
-    const pendingKey = workoutPendingKey(weekStart, dayIndex);
-    mergedWeek[dayIndex] = pendingSync.workouts[pendingKey]
-      ? localWeek[dayIndex]
-      : cloudWeek[dayIndex];
-  });
-  state.weeks[weekStart] = mergedWeek;
+  state.weeks[weekStart] = cloudWeek;
   saveLocal();
 }
 
