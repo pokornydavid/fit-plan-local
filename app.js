@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "73";
+const APP_VERSION = "74";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -16,6 +16,13 @@ const PHASE_PHOTO_LIMIT = 24;
 const PHASE_PHOTO_SIGNED_URL_SECONDS = 60 * 60 * 24 * 7;
 const COMMUNITY_POST_BUCKET = "community-posts";
 const COMMUNITY_POST_SIGNED_URL_SECONDS = 60 * 60 * 24 * 7;
+const DEFAULT_NUTRITION_GOALS = {
+  dailyCalories: 2300,
+  weeklyCalories: 16000,
+  protein: 180,
+  carbs: 250,
+  fat: 55
+};
 const DAY_LABELS = [
   ["Po", "Pondeli"],
   ["Ut", "Utery"],
@@ -640,15 +647,9 @@ function createBlankWeek() {
   );
 }
 
-function createNutritionWeek() {
+function createNutritionWeek(goals = DEFAULT_NUTRITION_GOALS) {
   return {
-    goals: {
-      dailyCalories: 2300,
-      weeklyCalories: 16000,
-      protein: 180,
-      carbs: 250,
-      fat: 55
-    },
+    goals: normalizeNutritionGoals(goals),
     lastCheatMeal: "",
     days: DAY_LABELS.map(() => ({
       calories: "",
@@ -688,13 +689,7 @@ function normalizeNutritionWeek(nutrition) {
   const sourceGoals = nutrition?.goals || {};
   const days = Array.isArray(nutrition?.days) ? nutrition.days : [];
   return {
-    goals: {
-      dailyCalories: toNumber(sourceGoals.dailyCalories, fallback.goals.dailyCalories),
-      weeklyCalories: toNumber(sourceGoals.weeklyCalories, fallback.goals.weeklyCalories),
-      protein: toNumber(sourceGoals.protein, fallback.goals.protein),
-      carbs: toNumber(sourceGoals.carbs, fallback.goals.carbs),
-      fat: toNumber(sourceGoals.fat, fallback.goals.fat)
-    },
+    goals: normalizeNutritionGoals(sourceGoals, fallback.goals),
     lastCheatMeal: String(nutrition?.lastCheatMeal || ""),
     days: DAY_LABELS.map((_, index) => {
       const day = days[index] || {};
@@ -746,8 +741,50 @@ function nutritionWeeksEqual(a, b) {
 }
 
 function nutritionGoalsChanged(goals) {
-  const defaults = createNutritionWeek().goals;
+  const defaults = DEFAULT_NUTRITION_GOALS;
   return Object.keys(defaults).some((key) => toNumber(goals?.[key], 0) !== defaults[key]);
+}
+
+function normalizeNutritionGoals(goals = {}, fallback = DEFAULT_NUTRITION_GOALS) {
+  return {
+    dailyCalories: toNumber(goals.dailyCalories, fallback.dailyCalories),
+    weeklyCalories: toNumber(goals.weeklyCalories, fallback.weeklyCalories),
+    protein: toNumber(goals.protein, fallback.protein),
+    carbs: toNumber(goals.carbs, fallback.carbs),
+    fat: toNumber(goals.fat, fallback.fat)
+  };
+}
+
+function isRealNutritionWeekKey(weekStart) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(weekStart || "")) && weekStart !== NUTRITION_PHASE_WEEK_START;
+}
+
+function getInheritedNutritionGoals(weekStart = state.weekStart) {
+  const keys = Object.keys(state.nutrition || {})
+    .filter((key) => isRealNutritionWeekKey(key) && key <= weekStart && state.nutrition[key])
+    .sort((a, b) => b.localeCompare(a));
+  const sourceWeek = keys.length ? state.nutrition[keys[0]] : null;
+  return sourceWeek
+    ? normalizeNutritionWeek(sourceWeek).goals
+    : normalizeNutritionGoals();
+}
+
+function propagateNutritionGoalsFromWeek(weekStart, goals) {
+  const normalizedGoals = normalizeNutritionGoals(goals);
+  const changedWeeks = [];
+  Object.keys(state.nutrition || {}).forEach((key) => {
+    if (!isRealNutritionWeekKey(key) || key < weekStart) return;
+    const current = normalizeNutritionWeek(state.nutrition[key]);
+    const next = {
+      ...current,
+      goals: { ...normalizedGoals }
+    };
+    if (!nutritionWeeksEqual(current, next)) {
+      state.nutrition[key] = next;
+      changedWeeks.push(key);
+    }
+  });
+  return changedWeeks;
 }
 
 function hasNutritionDayField(day, key) {
@@ -5462,6 +5499,8 @@ function updateNutritionGoal(input) {
   const field = input.dataset.goal;
   if (!field) return;
   nutrition.goals[field] = toNumber(input.value, 0);
+  propagateNutritionGoalsFromWeek(state.weekStart, nutrition.goals)
+    .forEach((weekStart) => markPendingNutritionSync(weekStart));
 }
 
 function restoreDefaultLibraryItems() {
@@ -5758,7 +5797,9 @@ function ensureWeek() {
 }
 
 function ensureNutritionWeek() {
-  if (!state.nutrition[state.weekStart]) state.nutrition[state.weekStart] = createNutritionWeek();
+  if (!state.nutrition[state.weekStart]) {
+    state.nutrition[state.weekStart] = createNutritionWeek(getInheritedNutritionGoals(state.weekStart));
+  }
   return state.nutrition[state.weekStart];
 }
 
