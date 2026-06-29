@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "74";
+const APP_VERSION = "75";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -410,6 +410,12 @@ function save() {
   scheduleCloudSync();
 }
 
+function saveNutritionPhase() {
+  saveLocal();
+  markPendingNutritionSync(NUTRITION_PHASE_WEEK_START);
+  scheduleNutritionSync();
+}
+
 function saveWorkoutWeek(weekStart = state.weekStart) {
   const week = state.weeks[weekStart] || createBlankWeek();
   state.weeks[weekStart] = week;
@@ -541,6 +547,19 @@ function markPendingNutritionSync(weekStart = state.weekStart) {
   savePendingSync();
 }
 
+function touchNutritionPhase(at = new Date().toISOString()) {
+  state.nutritionPhase.updatedAt = normalizeIsoTimestamp(at) || new Date().toISOString();
+  return state.nutritionPhase.updatedAt;
+}
+
+function touchNutritionPhaseRow(row, at = new Date().toISOString()) {
+  if (!row) return touchNutritionPhase(at);
+  const updatedAt = normalizeIsoTimestamp(at) || new Date().toISOString();
+  row.updatedAt = updatedAt;
+  touchNutritionPhase(updatedAt);
+  return updatedAt;
+}
+
 function clearPendingWorkoutSync(weekStart, dayIndex) {
   delete pendingSync.workouts[workoutPendingKey(weekStart, dayIndex)];
   savePendingSync();
@@ -667,6 +686,7 @@ function createNutritionPhase() {
     title: "",
     mode: "diet",
     goalWeight: "",
+    updatedAt: "",
     rows: Array.from({ length: DEFAULT_PHASE_WEEKS }, (_, index) => createNutritionPhaseRow(index + 1))
   };
 }
@@ -679,6 +699,7 @@ function createNutritionPhaseRow(index) {
     calories: "",
     weight: "",
     note: "",
+    updatedAt: "",
     photos: [],
     photoOrder: []
   };
@@ -822,6 +843,7 @@ function normalizeNutritionPhase(phase) {
       calories: normalizeOptionalNumber(row.calories),
       weight: normalizeOptionalNumber(row.weight),
       note: String(row.note || ""),
+      updatedAt: normalizeIsoTimestamp(row.updatedAt || row.lastEditedAt || ""),
       photos: orderedPhotos,
       photoOrder: orderedPhotos.length
         ? normalizePhotoOrder([...photoOrder.filter((key) => orderedKeys.includes(key)), ...orderedKeys])
@@ -836,6 +858,7 @@ function normalizeNutritionPhase(phase) {
     title: String(phase?.title || ""),
     mode: ["diet", "bulk", "maintain"].includes(phase?.mode) ? phase.mode : "diet",
     goalWeight: normalizeOptionalNumber(phase?.goalWeight),
+    updatedAt: normalizeIsoTimestamp(phase?.updatedAt || ""),
     rows: normalizedRows
   };
 }
@@ -964,19 +987,27 @@ function stripPhasePhotosForCloud(phase) {
 }
 
 function mergePhasePhotos(targetPhase, sourcePhase) {
-  const sourceRows = normalizeNutritionPhase(sourcePhase).rows;
+  const target = normalizeNutritionPhase(targetPhase);
+  const source = normalizeNutritionPhase(sourcePhase);
+  const sourceRows = source.rows;
   const rowsById = new Map(sourceRows.map((row) => [row.id, row]));
   const rowsByLabel = new Map(sourceRows.map((row) => [row.weekLabel, row]));
+  const phaseBase = shouldUseSourcePhase(source, target) ? source : target;
   return {
-    ...targetPhase,
-    rows: targetPhase.rows.map((row) => {
+    ...target,
+    title: phaseBase.title,
+    mode: phaseBase.mode,
+    goalWeight: phaseBase.goalWeight,
+    updatedAt: phaseBase.updatedAt,
+    rows: target.rows.map((row) => {
       const sourceRow = rowsById.get(row.id) || rowsByLabel.get(row.weekLabel);
+      const rowBase = shouldUseSourcePhaseRow(sourceRow, row) ? sourceRow : row;
       const order = normalizePhotoOrder([...normalizePhotoOrder(sourceRow?.photoOrder), ...normalizePhotoOrder(row.photoOrder)]);
       const sourcePhotos = sourceRow?.photos?.length ? sourceRow.photos : row.photos;
       const photos = orderPhasePhotos(normalizePhasePhotos(sourcePhotos), order);
       const photoKeys = photos.map(phasePhotoKey);
       return {
-        ...row,
+        ...rowBase,
         photos,
         photoOrder: photos.length
           ? normalizePhotoOrder([...order.filter((key) => photoKeys.includes(key)), ...photoKeys])
@@ -984,6 +1015,29 @@ function mergePhasePhotos(targetPhase, sourcePhase) {
       };
     })
   };
+}
+
+function shouldUseSourcePhase(source, target) {
+  const sourceTime = timestampMs(source?.updatedAt);
+  const targetTime = timestampMs(target?.updatedAt);
+  if (sourceTime || targetTime) return sourceTime > targetTime;
+  return hasPendingNutritionForWeek(NUTRITION_PHASE_WEEK_START);
+}
+
+function shouldUseSourcePhaseRow(sourceRow, targetRow) {
+  if (!sourceRow) return false;
+  const sourceTime = timestampMs(sourceRow.updatedAt);
+  const targetTime = timestampMs(targetRow?.updatedAt);
+  if (sourceTime || targetTime) return sourceTime > targetTime;
+  if (hasPendingNutritionForWeek(NUTRITION_PHASE_WEEK_START)) return true;
+  return phaseRowContentScore(sourceRow) > phaseRowContentScore(targetRow);
+}
+
+function phaseRowContentScore(row) {
+  if (!row) return 0;
+  return ["weekLabel", "date", "calories", "weight", "note"]
+    .filter((field) => String(row[field] ?? "").trim()).length +
+    normalizePhasePhotos(row.photos).length;
 }
 
 function createSampleWeek() {
@@ -2863,8 +2917,10 @@ async function handleClick(event) {
 
   if (action === "add-phase-row") {
     const phase = state.nutritionPhase;
-    phase.rows.push(createNutritionPhaseRow(phase.rows.length + 1));
-    save();
+    const row = createNutritionPhaseRow(phase.rows.length + 1);
+    touchNutritionPhaseRow(row);
+    phase.rows.push(row);
+    saveNutritionPhase();
     render();
     return;
   }
@@ -2879,7 +2935,8 @@ async function handleClick(event) {
       phase.rows = phase.rows.filter((row) => row.id !== rowId);
       openPhasePhotoRows.delete(rowId);
     }
-    save();
+    touchNutritionPhase();
+    saveNutritionPhase();
     render();
     return;
   }
@@ -2900,7 +2957,8 @@ async function handleClick(event) {
   if (action === "move-phase-photo") {
     const offset = Number(target.dataset.direction);
     if (movePhasePhotoByOffset(target.dataset.rowId, target.dataset.photoId, offset)) {
-      save();
+      touchNutritionPhaseRow(findNutritionPhaseRow(target.dataset.rowId));
+      saveNutritionPhase();
       runPendingSyncNow("Poradi fotek se nepodarilo ulozit do cloudu.");
       render();
       showToast("Poradi fotek upraveno.");
@@ -2988,6 +3046,7 @@ async function handleClick(event) {
     row.photoOrder = normalizePhotoOrder(row.photoOrder).filter((key) => key !== phasePhotoKey(removedPhoto));
     syncPhasePhotoOrder(row);
     openPhasePhotoRows.add(rowId);
+    touchNutritionPhaseRow(row);
     if (phasePhotoViewer?.rowId === rowId && phasePhotoViewer?.photoId === photoId) {
       const nextPhotos = orderPhasePhotos(row.photos, row.photoOrder);
       phasePhotoViewer = nextPhotos.length
@@ -2997,7 +3056,7 @@ async function handleClick(event) {
           }
         : null;
     }
-    save();
+    saveNutritionPhase();
     render();
     showToast(removedPhoto?.storagePath ? "Fotka smazana, cistim cloud..." : "Fotka smazana jen lokalne.");
     if (removedPhoto?.storagePath) {
@@ -3566,13 +3625,13 @@ function handleInput(event) {
 
   if (field === "nutrition-phase") {
     updateNutritionPhase(event.target);
-    save();
+    saveNutritionPhase();
     return;
   }
 
   if (field === "nutrition-phase-row") {
     updateNutritionPhaseRow(event.target);
-    save();
+    saveNutritionPhase();
     return;
   }
 
@@ -3656,14 +3715,14 @@ function handleChange(event) {
 
   if (field === "nutrition-phase") {
     updateNutritionPhase(event.target);
-    save();
+    saveNutritionPhase();
     render();
     return;
   }
 
   if (field === "nutrition-phase-row") {
     updateNutritionPhaseRow(event.target);
-    save();
+    saveNutritionPhase();
     render();
     return;
   }
@@ -3895,7 +3954,8 @@ function finishPhasePhotoDrag(event) {
 
   if (!drag.moved || !drag.overId || drag.overId === drag.photoId) return;
   if (movePhasePhotoInRow(drag.rowId, drag.photoId, drag.overId, drag.insertAfter)) {
-    save();
+    touchNutritionPhaseRow(findNutritionPhaseRow(drag.rowId));
+    saveNutritionPhase();
     runPendingSyncNow("Poradi fotek se nepodarilo ulozit do cloudu.");
     render();
     showToast("Poradi fotek upraveno.");
@@ -4019,7 +4079,8 @@ async function handlePhasePhotoImport(event) {
     row.photos = [...orderPhasePhotos(row.photos, row.photoOrder), ...localPhotos].slice(-PHASE_PHOTO_LIMIT);
     syncPhasePhotoOrder(row);
     openPhasePhotoRows.add(rowId);
-    saveLocal();
+    touchNutritionPhaseRow(row);
+    saveNutritionPhase();
     render();
 
     if (!syncToCloud) {
@@ -4027,7 +4088,7 @@ async function handlePhasePhotoImport(event) {
       return;
     }
 
-    await saveNutritionToCloud();
+    await saveNutritionPhaseToCloud();
     const uploadedPhotos = [];
     const uploadedPreviewIds = [];
     try {
@@ -4036,13 +4097,15 @@ async function handlePhasePhotoImport(event) {
         uploadedPreviewIds.push(localPhotos[index].id);
       }
       replacePhasePhotoPreviews(rowId, uploadedPreviewIds, uploadedPhotos);
-      save();
+      touchNutritionPhaseRow(findNutritionPhaseRow(rowId));
+      saveNutritionPhase();
       render();
       showToast(formatPhotoSaveMessage(uploadedPhotos.length, true));
     } catch (error) {
       if (uploadedPhotos.length) {
         replacePhasePhotoPreviews(rowId, uploadedPreviewIds, uploadedPhotos);
-        save();
+        touchNutritionPhaseRow(findNutritionPhaseRow(rowId));
+        saveNutritionPhase();
         render();
       }
       console.warn(error);
@@ -4169,7 +4232,8 @@ async function syncLocalPhasePhotosToCloud() {
   }
 
   if (uploadedCount) {
-    save();
+    touchNutritionPhase();
+    saveNutritionPhase();
     showToast(`${uploadedCount} lokalni fotky doposlany do cloudu.`);
   }
   return uploadedCount;
@@ -4412,6 +4476,7 @@ async function loadCloudNutritionWeek() {
   if (!cloud.client || !cloud.session) return;
   if (!flushingPendingSync && hasPendingNutritionForWeek(state.weekStart)) {
     await flushPendingSync();
+    if (hasPendingNutritionForWeek(state.weekStart)) return;
   }
   const { data, error } = await cloud.client
     .from("nutrition_weeks")
@@ -4450,13 +4515,17 @@ async function loadCloudNutritionWeek() {
     markPendingNutritionSync(state.weekStart);
     await flushPendingSync();
   }
-  await loadCloudNutritionPhase(data.payload?.phase);
+  await loadCloudNutritionPhase();
   await loadCloudPhasePhotos();
   await syncLocalPhasePhotosToCloud();
 }
 
 async function loadCloudNutritionPhase(fallbackPhase = null) {
   if (!cloud.client || !cloud.session) return;
+  if (!flushingPendingSync && hasPendingNutritionForWeek(NUTRITION_PHASE_WEEK_START)) {
+    await flushPendingSync();
+    if (hasPendingNutritionForWeek(NUTRITION_PHASE_WEEK_START)) return;
+  }
   const { data, error } = await cloud.client
     .from("nutrition_weeks")
     .select("payload")
@@ -5409,12 +5478,10 @@ async function saveNutritionWeekToCloud(weekStart, expectedPendingUpdatedAt = nu
         const mergedNutrition = mergeNutritionWeeks(localNutrition, cloudNutrition);
         state.nutrition[weekStart] = mergedNutrition;
         if (nutritionWeeksEqual(mergedNutrition, cloudNutrition)) {
-          if (existing.payload?.phase) state.nutritionPhase = normalizeNutritionPhase(existing.payload.phase);
           clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
           saveLocal();
           return;
         }
-        if (existing.payload?.phase) state.nutritionPhase = normalizeNutritionPhase(existing.payload.phase);
       }
       saveLocal();
     }
@@ -5436,10 +5503,7 @@ async function saveNutritionWeekToCloud(weekStart, expectedPendingUpdatedAt = nu
     .upsert({
       user_id: cloud.session.user.id,
       week_start: weekStart,
-      payload: {
-        ...nutrition,
-        phase: stripPhasePhotosForCloud(state.nutritionPhase)
-      },
+      payload: normalizeNutritionWeek(nutrition),
       calories: summary.totalCalories,
       protein: summary.totalProtein,
       carbs: summary.totalCarbs,
@@ -5449,7 +5513,6 @@ async function saveNutritionWeekToCloud(weekStart, expectedPendingUpdatedAt = nu
     }, { onConflict: "user_id,week_start" });
 
   if (error) throw error;
-  await saveNutritionPhaseToCloud();
   clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
 }
 
@@ -5670,24 +5733,30 @@ function updateNutritionPhase(input) {
   const phase = state.nutritionPhase;
   const field = input.dataset.phase;
   if (!field) return;
+  const editedAt = new Date().toISOString();
   if (field === "goalWeight") {
     phase.goalWeight = normalizeOptionalNumber(input.value);
+    touchNutritionPhase(editedAt);
     return;
   }
   if (field === "mode") {
     phase.mode = ["diet", "bulk", "maintain"].includes(input.value) ? input.value : "diet";
+    touchNutritionPhase(editedAt);
     return;
   }
   phase[field] = input.value;
+  touchNutritionPhase(editedAt);
 }
 
 function updateNutritionPhaseRow(input) {
   const row = findNutritionPhaseRow(input.dataset.rowId);
   const field = input.dataset.phaseRow;
   if (!row || !field) return;
+  const editedAt = new Date().toISOString();
   row[field] = ["calories", "weight"].includes(field)
     ? normalizeOptionalNumber(input.value)
     : input.value;
+  touchNutritionPhaseRow(row, editedAt);
 }
 
 function updatePhaseCompare(input) {
