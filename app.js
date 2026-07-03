@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "75";
+const APP_VERSION = "76";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -23,6 +23,8 @@ const DEFAULT_NUTRITION_GOALS = {
   carbs: 250,
   fat: 55
 };
+const NUTRITION_GOAL_FIELDS = Object.keys(DEFAULT_NUTRITION_GOALS);
+const NUTRITION_DAY_FIELDS = ["calories", "protein", "carbs", "fat", "weight", "notes"];
 const DAY_LABELS = [
   ["Po", "Pondeli"],
   ["Ut", "Utery"],
@@ -669,14 +671,18 @@ function createBlankWeek() {
 function createNutritionWeek(goals = DEFAULT_NUTRITION_GOALS) {
   return {
     goals: normalizeNutritionGoals(goals),
+    goalsUpdatedAt: {},
     lastCheatMeal: "",
+    lastCheatMealUpdatedAt: "",
     days: DAY_LABELS.map(() => ({
       calories: "",
       protein: "",
       carbs: "",
       fat: "",
       weight: "",
-      notes: ""
+      notes: "",
+      updatedAt: "",
+      fieldUpdatedAt: {}
     }))
   };
 }
@@ -711,7 +717,9 @@ function normalizeNutritionWeek(nutrition) {
   const days = Array.isArray(nutrition?.days) ? nutrition.days : [];
   return {
     goals: normalizeNutritionGoals(sourceGoals, fallback.goals),
+    goalsUpdatedAt: normalizeFieldUpdatedAt(nutrition?.goalsUpdatedAt, NUTRITION_GOAL_FIELDS),
     lastCheatMeal: String(nutrition?.lastCheatMeal || ""),
+    lastCheatMealUpdatedAt: normalizeIsoTimestamp(nutrition?.lastCheatMealUpdatedAt || ""),
     days: DAY_LABELS.map((_, index) => {
       const day = days[index] || {};
       return {
@@ -720,41 +728,103 @@ function normalizeNutritionWeek(nutrition) {
         carbs: normalizeOptionalNumber(day.carbs),
         fat: normalizeOptionalNumber(day.fat),
         weight: normalizeOptionalNumber(day.weight),
-        notes: String(day.notes || "")
+        notes: String(day.notes || ""),
+        updatedAt: normalizeIsoTimestamp(day.updatedAt || day.lastEditedAt || ""),
+        fieldUpdatedAt: normalizeFieldUpdatedAt(day.fieldUpdatedAt || day.updatedAtByField, NUTRITION_DAY_FIELDS)
       };
     })
   };
 }
 
-function mergeNutritionWeeks(localNutrition, cloudNutrition) {
+function normalizeFieldUpdatedAt(value, fields) {
+  const source = value && typeof value === "object" ? value : {};
+  return Object.fromEntries(fields.map((field) => [field, normalizeIsoTimestamp(source[field] || "")]));
+}
+
+function mergeNutritionWeeks(localNutrition, cloudNutrition, options = {}) {
+  const preferUntimed = options.preferUntimed || "cloud";
   const localWeek = normalizeNutritionWeek(localNutrition);
   const cloudWeek = normalizeNutritionWeek(cloudNutrition);
-  const localGoalsChanged = nutritionGoalsChanged(localWeek.goals);
-  const cloudGoalsChanged = nutritionGoalsChanged(cloudWeek.goals);
+  const mergedGoals = {};
+  const mergedGoalTimes = {};
+  NUTRITION_GOAL_FIELDS.forEach((field) => {
+    const choice = chooseNutritionField({
+      localValue: localWeek.goals[field],
+      cloudValue: cloudWeek.goals[field],
+      localUpdatedAt: localWeek.goalsUpdatedAt[field],
+      cloudUpdatedAt: cloudWeek.goalsUpdatedAt[field],
+      localHasValue: true,
+      cloudHasValue: true,
+      preferUntimed
+    });
+    mergedGoals[field] = choice.value;
+    if (choice.updatedAt) mergedGoalTimes[field] = choice.updatedAt;
+  });
+  const cheat = chooseNutritionField({
+    localValue: localWeek.lastCheatMeal,
+    cloudValue: cloudWeek.lastCheatMeal,
+    localUpdatedAt: localWeek.lastCheatMealUpdatedAt,
+    cloudUpdatedAt: cloudWeek.lastCheatMealUpdatedAt,
+    localHasValue: Boolean(localWeek.lastCheatMeal),
+    cloudHasValue: Boolean(cloudWeek.lastCheatMeal),
+    preferUntimed
+  });
   return {
-    goals: localGoalsChanged || !cloudGoalsChanged
-      ? { ...localWeek.goals }
-      : { ...cloudWeek.goals },
-    lastCheatMeal: localWeek.lastCheatMeal || cloudWeek.lastCheatMeal,
-    days: DAY_LABELS.map((_, index) => mergeNutritionDay(localWeek.days[index], cloudWeek.days[index]))
+    goals: mergedGoals,
+    goalsUpdatedAt: mergedGoalTimes,
+    lastCheatMeal: cheat.value,
+    lastCheatMealUpdatedAt: cheat.updatedAt,
+    days: DAY_LABELS.map((_, index) => mergeNutritionDay(localWeek.days[index], cloudWeek.days[index], preferUntimed))
   };
 }
 
-function mergeNutritionDay(localDay, cloudDay) {
+function mergeNutritionDay(localDay, cloudDay, preferUntimed = "cloud") {
   const local = normalizeNutritionWeek({ days: [localDay || {}] }).days[0];
   const cloud = normalizeNutritionWeek({ days: [cloudDay || {}] }).days[0];
-  const localFields = nutritionDayFieldCount(local);
-  const cloudFields = nutritionDayFieldCount(cloud);
-  if (!localFields) return { ...cloud };
-  if (!cloudFields) return { ...local };
-  return {
-    calories: hasNutritionDayField(local, "calories") ? local.calories : cloud.calories,
-    protein: hasNutritionDayField(local, "protein") ? local.protein : cloud.protein,
-    carbs: hasNutritionDayField(local, "carbs") ? local.carbs : cloud.carbs,
-    fat: hasNutritionDayField(local, "fat") ? local.fat : cloud.fat,
-    weight: hasNutritionDayField(local, "weight") ? local.weight : cloud.weight,
-    notes: hasNutritionDayField(local, "notes") ? local.notes : cloud.notes
-  };
+  const merged = { fieldUpdatedAt: {} };
+  NUTRITION_DAY_FIELDS.forEach((field) => {
+    const choice = chooseNutritionField({
+      localValue: local[field],
+      cloudValue: cloud[field],
+      localUpdatedAt: local.fieldUpdatedAt[field],
+      cloudUpdatedAt: cloud.fieldUpdatedAt[field],
+      localHasValue: hasNutritionDayField(local, field),
+      cloudHasValue: hasNutritionDayField(cloud, field),
+      preferUntimed
+    });
+    merged[field] = choice.value;
+    if (choice.updatedAt) merged.fieldUpdatedAt[field] = choice.updatedAt;
+  });
+  merged.updatedAt = maxIsoTimestamp(Object.values(merged.fieldUpdatedAt));
+  return merged;
+}
+
+function chooseNutritionField({
+  localValue,
+  cloudValue,
+  localUpdatedAt = "",
+  cloudUpdatedAt = "",
+  localHasValue = true,
+  cloudHasValue = true,
+  preferUntimed = "cloud"
+}) {
+  const localTime = timestampMs(localUpdatedAt);
+  const cloudTime = timestampMs(cloudUpdatedAt);
+  if (localTime || cloudTime) {
+    if (localTime >= cloudTime) {
+      return { value: localValue, updatedAt: normalizeIsoTimestamp(localUpdatedAt) };
+    }
+    return { value: cloudValue, updatedAt: normalizeIsoTimestamp(cloudUpdatedAt) };
+  }
+  if (localHasValue && !cloudHasValue) return { value: localValue, updatedAt: "" };
+  if (cloudHasValue && !localHasValue) return { value: cloudValue, updatedAt: "" };
+  if (preferUntimed === "local") return { value: localValue, updatedAt: "" };
+  return { value: cloudValue, updatedAt: "" };
+}
+
+function maxIsoTimestamp(values) {
+  const max = values.reduce((best, value) => Math.max(best, timestampMs(value)), 0);
+  return max ? new Date(max).toISOString() : "";
 }
 
 function nutritionWeeksEqual(a, b) {
@@ -790,16 +860,24 @@ function getInheritedNutritionGoals(weekStart = state.weekStart) {
     : normalizeNutritionGoals();
 }
 
-function propagateNutritionGoalsFromWeek(weekStart, goals) {
+function propagateNutritionGoalsFromWeek(weekStart, goals, changedField = null, editedAt = new Date().toISOString()) {
   const normalizedGoals = normalizeNutritionGoals(goals);
+  const fields = changedField && NUTRITION_GOAL_FIELDS.includes(changedField)
+    ? [changedField]
+    : NUTRITION_GOAL_FIELDS;
   const changedWeeks = [];
   Object.keys(state.nutrition || {}).forEach((key) => {
     if (!isRealNutritionWeekKey(key) || key < weekStart) return;
     const current = normalizeNutritionWeek(state.nutrition[key]);
     const next = {
       ...current,
-      goals: { ...normalizedGoals }
+      goals: { ...current.goals },
+      goalsUpdatedAt: { ...current.goalsUpdatedAt }
     };
+    fields.forEach((field) => {
+      next.goals[field] = normalizedGoals[field];
+      next.goalsUpdatedAt[field] = normalizeIsoTimestamp(editedAt) || new Date().toISOString();
+    });
     if (!nutritionWeeksEqual(current, next)) {
       state.nutrition[key] = next;
       changedWeeks.push(key);
@@ -3618,7 +3696,9 @@ function handleInput(event) {
   }
 
   if (field === "nutrition-cheat") {
-    ensureNutritionWeek().lastCheatMeal = event.target.value;
+    const nutrition = ensureNutritionWeek();
+    nutrition.lastCheatMeal = event.target.value;
+    nutrition.lastCheatMealUpdatedAt = new Date().toISOString();
     save();
     return;
   }
@@ -3708,7 +3788,9 @@ function handleChange(event) {
   }
 
   if (field === "nutrition-cheat") {
-    ensureNutritionWeek().lastCheatMeal = event.target.value;
+    const nutrition = ensureNutritionWeek();
+    nutrition.lastCheatMeal = event.target.value;
+    nutrition.lastCheatMealUpdatedAt = new Date().toISOString();
     save();
     return;
   }
@@ -4504,7 +4586,7 @@ async function loadCloudNutritionWeek() {
     ? normalizeNutritionWeek(state.nutrition[state.weekStart])
     : null;
   const mergedNutrition = localNutrition
-    ? mergeNutritionWeeks(localNutrition, cloudNutrition)
+    ? mergeNutritionWeeks(localNutrition, cloudNutrition, { preferUntimed: "cloud" })
     : cloudNutrition;
   state.nutrition[state.weekStart] = mergedNutrition;
   if (
@@ -5462,8 +5544,8 @@ async function saveNutritionToCloud() {
 
 async function saveNutritionWeekToCloud(weekStart, expectedPendingUpdatedAt = null) {
   if (!cloud.client || !cloud.session) return;
+  const existing = await fetchExistingNutritionWeek(weekStart);
   if (expectedPendingUpdatedAt) {
-    const existing = await fetchExistingNutritionWeek(weekStart);
     if (existing && isCloudRowNewer(existing.updated_at, expectedPendingUpdatedAt)) {
       if (weekStart === NUTRITION_PHASE_WEEK_START) {
         state.nutritionPhase = normalizeNutritionPhase(existing.payload?.phase);
@@ -5475,7 +5557,7 @@ async function saveNutritionWeekToCloud(weekStart, expectedPendingUpdatedAt = nu
         const localNutrition = state.nutrition[weekStart]
           ? normalizeNutritionWeek(state.nutrition[weekStart])
           : createNutritionWeek();
-        const mergedNutrition = mergeNutritionWeeks(localNutrition, cloudNutrition);
+        const mergedNutrition = mergeNutritionWeeks(localNutrition, cloudNutrition, { preferUntimed: "cloud" });
         state.nutrition[weekStart] = mergedNutrition;
         if (nutritionWeeksEqual(mergedNutrition, cloudNutrition)) {
           clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
@@ -5497,13 +5579,21 @@ async function saveNutritionWeekToCloud(weekStart, expectedPendingUpdatedAt = nu
     clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
     return;
   }
-  const summary = summarizeNutrition(nutrition);
+  if (existing) {
+    state.nutrition[weekStart] = mergeNutritionWeeks(nutrition, existing.payload, { preferUntimed: "cloud" });
+  }
+  const mergedNutrition = state.nutrition[weekStart];
+  if (!mergedNutrition) {
+    clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
+    return;
+  }
+  const summary = summarizeNutrition(mergedNutrition);
   const { error } = await cloud.client
     .from("nutrition_weeks")
     .upsert({
       user_id: cloud.session.user.id,
       week_start: weekStart,
-      payload: normalizeNutritionWeek(nutrition),
+      payload: normalizeNutritionWeek(mergedNutrition),
       calories: summary.totalCalories,
       protein: summary.totalProtein,
       carbs: summary.totalCarbs,
@@ -5552,17 +5642,29 @@ function updateNutritionDay(input) {
   const dayIndex = Number(input.dataset.day);
   const field = input.dataset.nutrition;
   if (!nutrition.days[dayIndex] || !field) return;
-  nutrition.days[dayIndex][field] = field === "notes"
+  const day = nutrition.days[dayIndex];
+  const editedAt = new Date().toISOString();
+  day[field] = field === "notes"
     ? input.value
     : normalizeOptionalNumber(input.value);
+  day.fieldUpdatedAt = {
+    ...normalizeFieldUpdatedAt(day.fieldUpdatedAt, NUTRITION_DAY_FIELDS),
+    [field]: editedAt
+  };
+  day.updatedAt = maxIsoTimestamp(Object.values(day.fieldUpdatedAt));
 }
 
 function updateNutritionGoal(input) {
   const nutrition = ensureNutritionWeek();
   const field = input.dataset.goal;
   if (!field) return;
+  const editedAt = new Date().toISOString();
   nutrition.goals[field] = toNumber(input.value, 0);
-  propagateNutritionGoalsFromWeek(state.weekStart, nutrition.goals)
+  nutrition.goalsUpdatedAt = {
+    ...normalizeFieldUpdatedAt(nutrition.goalsUpdatedAt, NUTRITION_GOAL_FIELDS),
+    [field]: editedAt
+  };
+  propagateNutritionGoalsFromWeek(state.weekStart, nutrition.goals, field, editedAt)
     .forEach((weekStart) => markPendingNutritionSync(weekStart));
 }
 
@@ -5910,10 +6012,15 @@ function cloneNutritionWeek(nutrition, resetDays = false) {
   const normalized = normalizeNutritionWeek(nutrition);
   return {
     goals: { ...normalized.goals },
+    goalsUpdatedAt: { ...normalized.goalsUpdatedAt },
     lastCheatMeal: resetDays ? "" : normalized.lastCheatMeal,
+    lastCheatMealUpdatedAt: resetDays ? "" : normalized.lastCheatMealUpdatedAt,
     days: resetDays
       ? createNutritionWeek().days
-      : normalized.days.map((day) => ({ ...day }))
+      : normalized.days.map((day) => ({
+          ...day,
+          fieldUpdatedAt: { ...day.fieldUpdatedAt }
+        }))
   };
 }
 
