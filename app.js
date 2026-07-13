@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "76";
+const APP_VERSION = "77";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -477,6 +477,47 @@ function activateUserStorage(userId) {
   state = loadState(activeStorageKey, createAccountState(theme));
   pendingSync = loadPendingSync(activePendingSyncKey);
   saveLocal();
+}
+
+function loadAnonymousRecoveryState() {
+  if (activeStorageKey === STORAGE_KEY) return null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return normalizeState(JSON.parse(raw), createDefaultState());
+  } catch {
+    return null;
+  }
+}
+
+function localRecoveryStats(recoveryState) {
+  const stats = {
+    workouts: 0,
+    nutritionWeeks: 0,
+    progressRows: 0
+  };
+  if (!recoveryState) return { ...stats, hasData: false };
+
+  Object.values(recoveryState.weeks || {}).forEach((week) => {
+    const normalized = normalizeWeek(week);
+    DAY_LABELS.forEach((_, dayIndex) => {
+      const day = normalized[dayIndex];
+      if (hasDayCloudContent(day) && dayEditedAt(day)) stats.workouts += 1;
+    });
+  });
+
+  Object.entries(recoveryState.nutrition || {}).forEach(([weekStart, nutrition]) => {
+    if (!isRealNutritionWeekKey(weekStart)) return;
+    if (hasNutritionWeekContent(nutrition)) stats.nutritionWeeks += 1;
+  });
+
+  const phase = normalizeNutritionPhase(recoveryState.nutritionPhase);
+  stats.progressRows = phase.rows.filter((row, index) => hasNutritionPhaseRowData(row, index)).length;
+
+  return {
+    ...stats,
+    hasData: stats.workouts > 0 || stats.nutritionWeeks > 0 || stats.progressRows > 0
+  };
 }
 
 function activateAnonymousStorage() {
@@ -1456,6 +1497,7 @@ function renderProfileShell() {
           </label>
           <button class="btn primary" type="submit">Ulozit profil</button>
         </form>
+        ${renderLocalRecoveryCard()}
         <div class="auth-card profile-card danger-zone">
           <div>
             <h3>Vymazat data uctu</h3>
@@ -1465,6 +1507,25 @@ function renderProfileShell() {
         </div>
       </section>
     </main>
+  `;
+}
+
+function renderLocalRecoveryCard() {
+  const recoveryState = loadAnonymousRecoveryState();
+  const stats = localRecoveryStats(recoveryState);
+  if (!stats.hasData) return "";
+  const pieces = [];
+  if (stats.workouts) pieces.push(`${stats.workouts} treninku`);
+  if (stats.nutritionWeeks) pieces.push(`${stats.nutritionWeeks} nutrition tydnu`);
+  if (stats.progressRows) pieces.push(`${stats.progressRows} progress radku`);
+  return `
+    <div class="auth-card profile-card">
+      <div>
+        <h3>Obnovit lokalni data z tohoto zarizeni</h3>
+        <p class="microcopy">Nasel jsem mimo cloud lokalni zapis: ${escapeHtml(pieces.join(", "))}. Prenos cloud nemaze, jen doplni novejsi lokalni zaznamy do tveho uctu.</p>
+      </div>
+      <button class="btn primary" data-action="recover-local-data">Prenest do uctu a synchronizovat</button>
+    </div>
   `;
 }
 
@@ -2833,6 +2894,11 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "recover-local-data") {
+    await recoverLocalDataToAccount();
+    return;
+  }
+
   if (action === "reset-nutrition-data") {
     await resetNutritionData();
     return;
@@ -3640,6 +3706,76 @@ async function resetAccountData() {
   await loadSocialData();
   render();
   showToast("Ucet je vycisteny.");
+}
+
+async function recoverLocalDataToAccount() {
+  if (!cloud.client || !cloud.session) {
+    showToast("Nejdriv se prihlas.");
+    return;
+  }
+  const recoveryState = loadAnonymousRecoveryState();
+  const stats = localRecoveryStats(recoveryState);
+  if (!stats.hasData) {
+    showToast("Na tomhle zarizeni nejsou lokalni data k prenosu.");
+    render();
+    return;
+  }
+  if (!confirm("Prenest lokalni data z tohoto zarizeni do uctu? Cloud se nesmaze, jen se doplni novejsi lokalni zaznamy.")) return;
+
+  let recoveredWorkouts = 0;
+  let recoveredNutrition = 0;
+  let recoveredProgress = false;
+
+  Object.entries(recoveryState.weeks || {}).forEach(([weekStart, week]) => {
+    const normalizedWeek = normalizeWeek(week);
+    if (!state.weeks[weekStart]) state.weeks[weekStart] = createBlankWeek();
+    DAY_LABELS.forEach((_, dayIndex) => {
+      const sourceDay = normalizedWeek[dayIndex];
+      if (!hasDayCloudContent(sourceDay) || !dayEditedAt(sourceDay)) return;
+      const targetDay = state.weeks[weekStart]?.[dayIndex];
+      const sourceTime = dayEditedTime(sourceDay);
+      const targetTime = dayEditedTime(targetDay);
+      const targetHasContent = hasDayCloudContent(targetDay);
+      if (targetHasContent && targetTime > sourceTime + 1000) return;
+      state.weeks[weekStart][dayIndex] = cloneDay(sourceDay);
+      markPendingWorkoutSync(weekStart, dayIndex);
+      recoveredWorkouts += 1;
+    });
+  });
+
+  Object.entries(recoveryState.nutrition || {}).forEach(([weekStart, nutrition]) => {
+    if (!isRealNutritionWeekKey(weekStart)) return;
+    const sourceNutrition = normalizeNutritionWeek(nutrition);
+    if (!hasNutritionWeekContent(sourceNutrition)) return;
+    const targetNutrition = state.nutrition[weekStart]
+      ? normalizeNutritionWeek(state.nutrition[weekStart])
+      : createNutritionWeek();
+    const mergedNutrition = mergeNutritionWeeks(sourceNutrition, targetNutrition, { preferUntimed: "local" });
+    if (!nutritionWeeksEqual(mergedNutrition, targetNutrition)) {
+      state.nutrition[weekStart] = mergedNutrition;
+      markPendingNutritionSync(weekStart);
+      recoveredNutrition += 1;
+    }
+  });
+
+  const sourcePhase = normalizeNutritionPhase(recoveryState.nutritionPhase);
+  if (hasNutritionPhaseData(sourcePhase)) {
+    state.nutritionPhase = mergePhasePhotos(state.nutritionPhase, sourcePhase);
+    markPendingNutritionSync(NUTRITION_PHASE_WEEK_START);
+    recoveredProgress = true;
+  }
+
+  saveLocal();
+  await flushPendingSync();
+  await loadCloudData();
+  saveLocal();
+  render();
+
+  const parts = [];
+  if (recoveredWorkouts) parts.push(`${recoveredWorkouts} treninku`);
+  if (recoveredNutrition) parts.push(`${recoveredNutrition} nutrition tydnu`);
+  if (recoveredProgress) parts.push("progress");
+  showToast(parts.length ? `Preneseno do uctu: ${parts.join(", ")}.` : "Cloud uz mel novejsi data.");
 }
 
 async function resetNutritionData() {
@@ -6199,13 +6335,18 @@ function hasNutritionWeekContent(nutrition) {
 
 function hasNutritionPhaseData(phaseValue) {
   const phase = normalizeNutritionPhase(phaseValue);
-  return Boolean(phase.title || phase.goalWeight) || phase.mode !== "diet" || phase.rows.some((row, index) => (
+  return Boolean(phase.title || phase.goalWeight) || phase.mode !== "diet" || phase.rows.some(hasNutritionPhaseRowData);
+}
+
+function hasNutritionPhaseRowData(row, index) {
+  return Boolean(
     row.weekLabel !== `Tyden ${index + 1}` ||
     row.date !== "" ||
     row.calories !== "" ||
     row.weight !== "" ||
-    row.note.trim()
-  ));
+    row.note.trim() ||
+    normalizePhasePhotos(row.photos).length
+  );
 }
 
 function exportData() {
