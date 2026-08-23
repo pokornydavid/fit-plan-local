@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "81";
+const APP_VERSION = "82";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -1903,14 +1903,13 @@ function renderSleepShell(nutrition, summary) {
             <div class="macro-bars">
               ${renderMacroBar("Book pages", "sleepBookPages", summary.totalBookPages, nutrition.goals.bookPages, "pages")}
               ${renderMacroBar("Morning walk", "sleepMorningWalk", summary.totalMorningWalkMinutes, nutrition.goals.morningWalkMinutes, "min")}
-              ${renderMacroBar("No alarm", "sleepNoAlarm", summary.noAlarmDays, 7, "days")}
             </div>
           </section>
         </div>
         <section class="nutrition-card">
           <div class="section-row">
             <h3>Daily sleep log</h3>
-            <span class="microcopy">Bedtime, sleep time, wake time, sleep rating, no alarm, reading and morning walk</span>
+            <span class="microcopy">Bedtime, wake time, sleep rating, reading and morning walk</span>
           </div>
           <div class="nutrition-day-cards">
             ${renderSleepDayPager(nutrition)}
@@ -1921,11 +1920,9 @@ function renderSleepShell(nutrition, summary) {
                 <tr>
                   <th>Day</th>
                   <th>Bed</th>
-                  <th>Sleep</th>
                   <th>Wake</th>
                   <th>Duration</th>
                   <th>Rating</th>
-                  <th>No alarm</th>
                   <th>Pages</th>
                   <th>Walk min</th>
                 </tr>
@@ -1980,11 +1977,9 @@ function renderSleepDayCard(day, index) {
       </div>
       <div class="nutrition-day-grid sleep-day-grid">
         ${renderSleepTimeInput(index, "bedTime", "Bed time", day.bedTime)}
-        ${renderSleepTimeInput(index, "sleepTime", "Asleep", day.sleepTime)}
         ${renderSleepTimeInput(index, "wakeTime", "Wake time", day.wakeTime)}
         ${renderSleepCardInput(index, "bookPages", "Book pages", day.bookPages, 1, 0)}
         ${renderSleepCardInput(index, "morningWalkMinutes", "Morning walk min", day.morningWalkMinutes, 5, 0)}
-        ${renderSleepCheckbox(index, "wokeWithoutAlarm", "No alarm", day.wokeWithoutAlarm)}
       </div>
     </article>
   `;
@@ -2036,11 +2031,9 @@ function renderSleepDayRow(day, index) {
         <span>${formatShortDate(date)}</span>
       </th>
       ${renderSleepTableTimeInput(index, "bedTime", day.bedTime)}
-      ${renderSleepTableTimeInput(index, "sleepTime", day.sleepTime)}
       ${renderSleepTableTimeInput(index, "wakeTime", day.wakeTime)}
       <td><strong class="sleep-duration" data-sleep-duration-day="${index}">${formatSleepMinutes(sleepMinutesForDay(day))}</strong></td>
       ${renderSleepInput(index, "sleepQuality", day.sleepQuality, 1, 1, 5)}
-      <td>${renderSleepCheckbox(index, "wokeWithoutAlarm", "Yes", day.wokeWithoutAlarm)}</td>
       ${renderSleepInput(index, "bookPages", day.bookPages, 1)}
       ${renderSleepInput(index, "morningWalkMinutes", day.morningWalkMinutes, 5)}
     </tr>
@@ -6291,7 +6284,6 @@ function refreshSleepSummary() {
 
   refreshMacroSummary("sleepBookPages", summary.totalBookPages, nutrition.goals.bookPages);
   refreshMacroSummary("sleepMorningWalk", summary.totalMorningWalkMinutes, nutrition.goals.morningWalkMinutes);
-  refreshMacroSummary("sleepNoAlarm", summary.noAlarmDays, 7);
   nutrition.days.forEach((day, index) => {
     const date = addDays(parseDate(state.weekStart), index);
     setText(`[data-sleep-card-meta="${index}"]`, `${formatShortDate(date)} - ${formatSleepMinutes(sleepMinutesForDay(day))}`);
@@ -6931,7 +6923,7 @@ function minutesBetweenClockTimes(start, end) {
 }
 
 function sleepMinutesForDay(day) {
-  return minutesBetweenClockTimes(day?.sleepTime || day?.bedTime, day?.wakeTime);
+  return minutesBetweenClockTimes(day?.bedTime || day?.sleepTime, day?.wakeTime);
 }
 
 function formatSleepMinutes(minutes) {
