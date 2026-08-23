@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "80";
+const APP_VERSION = "81";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -1409,7 +1409,7 @@ function renderWeekHeaderMeta(summary, nutrition, nutritionSummary, sleepSummary
     return `${formatNumber(nutritionSummary.totalCalories)}/${formatNumber(nutrition.goals.weeklyCalories)} kcal`;
   }
   if (state.activeView === "sleep") {
-    return `${formatSleepMinutes(sleepSummary.totalSleepMinutes)} spanku`;
+    return `${formatSleepMinutes(sleepSummary.totalSleepMinutes)} sleep`;
   }
   return `${summary.completed}/${summary.totalSets} serii hotovo`;
 }
@@ -1874,15 +1874,15 @@ function renderSleepShell(nutrition, summary) {
         <div class="nutrition-head">
           <div>
             <p class="eyebrow">Sleep & routine</p>
-            <h2>Spanek a ranni rutina</h2>
-            <p class="auth-copy">Rucni sleep log, kvalita spanku, kofein, probuzeni bez budiku, knizky a ranni chuze mimo jidelnicek.</p>
+            <h2>Sleep and morning routine</h2>
+            <p class="auth-copy">Manual sleep log, sleep rating, no-alarm wakeups, book pages and morning walks outside nutrition.</p>
           </div>
         </div>
         <div class="nutrition-metrics">
-          <div class="metric hero-metric"><strong data-sleep-summary="averageSleep">${formatSleepMinutes(summary.averageSleepMinutes)}</strong><span>Prumer spanku</span></div>
-          <div class="metric"><strong data-sleep-summary="averageQuality">${summary.averageQuality ? `${formatNumber(summary.averageQuality)}/5` : "-"}</strong><span>Kvalita</span></div>
-          <div class="metric"><strong data-sleep-summary="bookPages">${formatNumber(summary.totalBookPages)}/${formatNumber(nutrition.goals.bookPages)}</strong><span>Stranky tydne</span></div>
-          <div class="metric"><strong data-sleep-summary="walkMinutes">${formatNumber(summary.totalMorningWalkMinutes)}/${formatNumber(nutrition.goals.morningWalkMinutes)}</strong><span>Ranni chuze min</span></div>
+          <div class="metric hero-metric"><strong data-sleep-summary="averageSleep">${formatSleepMinutes(summary.averageSleepMinutes)}</strong><span>Average sleep</span></div>
+          <div class="metric"><strong data-sleep-summary="averageQuality">${summary.averageQuality ? `${formatNumber(summary.averageQuality)}/5` : "-"}</strong><span>Sleep rating</span></div>
+          <div class="metric"><strong data-sleep-summary="bookPages">${formatNumber(summary.totalBookPages)}/${formatNumber(nutrition.goals.bookPages)}</strong><span>Book pages</span></div>
+          <div class="metric"><strong data-sleep-summary="walkMinutes">${formatNumber(summary.totalMorningWalkMinutes)}/${formatNumber(nutrition.goals.morningWalkMinutes)}</strong><span>Morning walk min</span></div>
         </div>
         <div class="nutrition-grid">
           <section class="nutrition-card">
@@ -1898,19 +1898,19 @@ function renderSleepShell(nutrition, summary) {
           <section class="nutrition-card">
             <div class="section-row">
               <h3>Weekly rhythm</h3>
-              <span class="pill done" data-sleep-summary="daysLogged">${summary.sleepLoggedDays}/7 dni</span>
+              <span class="pill done" data-sleep-summary="daysLogged">${summary.sleepLoggedDays}/7 days</span>
             </div>
             <div class="macro-bars">
               ${renderMacroBar("Book pages", "sleepBookPages", summary.totalBookPages, nutrition.goals.bookPages, "pages")}
               ${renderMacroBar("Morning walk", "sleepMorningWalk", summary.totalMorningWalkMinutes, nutrition.goals.morningWalkMinutes, "min")}
-              ${renderMacroBar("Bez budiku", "sleepNoAlarm", summary.noAlarmDays, 7, "dni")}
+              ${renderMacroBar("No alarm", "sleepNoAlarm", summary.noAlarmDays, 7, "days")}
             </div>
           </section>
         </div>
         <section class="nutrition-card">
           <div class="section-row">
             <h3>Daily sleep log</h3>
-            <span class="microcopy">Cas ulehnuti, usnuti, probuzeni, kvalita, kofein, knizky a chuze</span>
+            <span class="microcopy">Bedtime, sleep time, wake time, sleep rating, no alarm, reading and morning walk</span>
           </div>
           <div class="nutrition-day-cards">
             ${renderSleepDayPager(nutrition)}
@@ -1920,17 +1920,14 @@ function renderSleepShell(nutrition, summary) {
               <thead>
                 <tr>
                   <th>Day</th>
-                  <th>Ulehnuti</th>
-                  <th>Usnuti</th>
-                  <th>Probuzeni</th>
-                  <th>Spanek</th>
-                  <th>Kvalita</th>
-                  <th>Bez budiku</th>
-                  <th>Noc</th>
-                  <th>Kofein</th>
+                  <th>Bed</th>
+                  <th>Sleep</th>
+                  <th>Wake</th>
+                  <th>Duration</th>
+                  <th>Rating</th>
+                  <th>No alarm</th>
                   <th>Pages</th>
                   <th>Walk min</th>
-                  <th>Note</th>
                 </tr>
               </thead>
               <tbody>
@@ -1979,22 +1976,16 @@ function renderSleepDayCard(day, index) {
           <strong>${DAY_LABELS[index][1]}</strong>
           <span data-sleep-card-meta="${index}">${formatShortDate(date)} - ${formatSleepMinutes(sleepMinutesForDay(day))}</span>
         </div>
-        ${renderSleepCardInput(index, "sleepQuality", "Kvalita 1-5", day.sleepQuality, 1, 1, 5)}
+        ${renderSleepCardInput(index, "sleepQuality", "Sleep rating 1-5", day.sleepQuality, 1, 1, 5)}
       </div>
       <div class="nutrition-day-grid sleep-day-grid">
-        ${renderSleepTimeInput(index, "bedTime", "Ulehnuti", day.bedTime)}
-        ${renderSleepTimeInput(index, "sleepTime", "Usnuti", day.sleepTime)}
-        ${renderSleepTimeInput(index, "wakeTime", "Probuzeni", day.wakeTime)}
-        ${renderSleepCardInput(index, "nightWakeups", "Probuzeni v noci", day.nightWakeups, 1, 0)}
-        ${renderSleepCardInput(index, "caffeine", "Kofein mg", day.caffeine, 25, 0)}
-        ${renderSleepCardInput(index, "bookPages", "Stranky", day.bookPages, 1, 0)}
-        ${renderSleepCardInput(index, "morningWalkMinutes", "Ranni chuze min", day.morningWalkMinutes, 5, 0)}
-        ${renderSleepCheckbox(index, "wokeWithoutAlarm", "Bez budiku", day.wokeWithoutAlarm)}
+        ${renderSleepTimeInput(index, "bedTime", "Bed time", day.bedTime)}
+        ${renderSleepTimeInput(index, "sleepTime", "Asleep", day.sleepTime)}
+        ${renderSleepTimeInput(index, "wakeTime", "Wake time", day.wakeTime)}
+        ${renderSleepCardInput(index, "bookPages", "Book pages", day.bookPages, 1, 0)}
+        ${renderSleepCardInput(index, "morningWalkMinutes", "Morning walk min", day.morningWalkMinutes, 5, 0)}
+        ${renderSleepCheckbox(index, "wokeWithoutAlarm", "No alarm", day.wokeWithoutAlarm)}
       </div>
-      <label class="field">
-        <span>Poznamka</span>
-        <input class="input" data-field="sleep-day" data-day="${index}" data-nutrition="sleepNotes" value="${escapeAttr(day.sleepNotes)}" placeholder="Co ovlivnilo spanek?">
-      </label>
     </article>
   `;
 }
@@ -2049,12 +2040,9 @@ function renderSleepDayRow(day, index) {
       ${renderSleepTableTimeInput(index, "wakeTime", day.wakeTime)}
       <td><strong class="sleep-duration" data-sleep-duration-day="${index}">${formatSleepMinutes(sleepMinutesForDay(day))}</strong></td>
       ${renderSleepInput(index, "sleepQuality", day.sleepQuality, 1, 1, 5)}
-      <td>${renderSleepCheckbox(index, "wokeWithoutAlarm", "Ano", day.wokeWithoutAlarm)}</td>
-      ${renderSleepInput(index, "nightWakeups", day.nightWakeups, 1)}
-      ${renderSleepInput(index, "caffeine", day.caffeine, 25)}
+      <td>${renderSleepCheckbox(index, "wokeWithoutAlarm", "Yes", day.wokeWithoutAlarm)}</td>
       ${renderSleepInput(index, "bookPages", day.bookPages, 1)}
       ${renderSleepInput(index, "morningWalkMinutes", day.morningWalkMinutes, 5)}
-      <td><input class="input" data-field="sleep-day" data-day="${index}" data-nutrition="sleepNotes" value="${escapeAttr(day.sleepNotes)}" placeholder="Sleep note"></td>
     </tr>
   `;
 }
@@ -6293,13 +6281,13 @@ function refreshSleepSummary() {
   const summary = summarizeSleep(nutrition);
   const routineProgress = Math.round((summary.bookProgress + summary.walkProgress) / 2);
 
-  setText("[data-sleep-summary='header']", `${formatSleepMinutes(summary.totalSleepMinutes)} spanku`);
+  setText("[data-sleep-summary='header']", `${formatSleepMinutes(summary.totalSleepMinutes)} sleep`);
   setText("[data-sleep-summary='averageSleep']", formatSleepMinutes(summary.averageSleepMinutes));
   setText("[data-sleep-summary='averageQuality']", summary.averageQuality ? `${formatNumber(summary.averageQuality)}/5` : "-");
   setText("[data-sleep-summary='bookPages']", `${formatNumber(summary.totalBookPages)}/${formatNumber(nutrition.goals.bookPages)}`);
   setText("[data-sleep-summary='walkMinutes']", `${formatNumber(summary.totalMorningWalkMinutes)}/${formatNumber(nutrition.goals.morningWalkMinutes)}`);
   setText("[data-sleep-summary='routineProgress']", `${routineProgress}%`);
-  setText("[data-sleep-summary='daysLogged']", `${summary.sleepLoggedDays}/7 dni`);
+  setText("[data-sleep-summary='daysLogged']", `${summary.sleepLoggedDays}/7 days`);
 
   refreshMacroSummary("sleepBookPages", summary.totalBookPages, nutrition.goals.bookPages);
   refreshMacroSummary("sleepMorningWalk", summary.totalMorningWalkMinutes, nutrition.goals.morningWalkMinutes);

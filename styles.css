@@ -1977,12 +1977,13 @@ button.cloud-badge:hover {
 
 .nutrition-table {
   width: 100%;
-  min-width: 1120px;
+  min-width: 0;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .sleep-table {
-  min-width: 1320px;
+  min-width: 0;
 }
 
 .nutrition-table th,
@@ -2001,7 +2002,12 @@ button.cloud-badge:hover {
 }
 
 .nutrition-table tbody th {
-  width: 90px;
+  width: 70px;
+}
+
+.nutrition-table .input {
+  width: 100%;
+  min-width: 0;
 }
 
 .nutrition-table tbody th span {
