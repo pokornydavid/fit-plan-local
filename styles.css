@@ -1126,6 +1126,10 @@ button.cloud-badge:hover {
   gap: 10px;
 }
 
+.sleep-shell .nutrition-metrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .hero-metric {
   border-color: rgba(45, 212, 191, 0.42);
   background: linear-gradient(135deg, var(--teal-soft), var(--control));
@@ -1289,7 +1293,7 @@ button.cloud-badge:hover {
 }
 
 .sleep-goal-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .sleep-day-grid {
@@ -2725,6 +2729,10 @@ button.cloud-badge:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .sleep-shell .nutrition-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .nutrition-shell {
     padding: 12px;
   }
@@ -2980,6 +2988,10 @@ button.cloud-badge:hover {
   }
 
   .nutrition-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .sleep-shell .nutrition-metrics {
     grid-template-columns: 1fr;
   }
 
