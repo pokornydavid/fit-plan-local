@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "79";
+const APP_VERSION = "80";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -25,8 +25,23 @@ const DEFAULT_NUTRITION_GOALS = {
   bookPages: 40,
   morningWalkMinutes: 100
 };
-const NUTRITION_GOAL_FIELDS = Object.keys(DEFAULT_NUTRITION_GOALS);
-const NUTRITION_DAY_FIELDS = ["calories", "protein", "carbs", "fat", "bookPages", "morningWalkMinutes", "weight", "notes"];
+const FOOD_GOAL_FIELDS = ["dailyCalories", "weeklyCalories", "protein", "carbs", "fat"];
+const SLEEP_GOAL_FIELDS = ["bookPages", "morningWalkMinutes"];
+const NUTRITION_GOAL_FIELDS = [...FOOD_GOAL_FIELDS, ...SLEEP_GOAL_FIELDS];
+const FOOD_DAY_FIELDS = ["calories", "protein", "carbs", "fat", "weight", "notes"];
+const SLEEP_DAY_FIELDS = [
+  "bedTime",
+  "sleepTime",
+  "wakeTime",
+  "sleepQuality",
+  "nightWakeups",
+  "caffeine",
+  "wokeWithoutAlarm",
+  "bookPages",
+  "morningWalkMinutes",
+  "sleepNotes"
+];
+const NUTRITION_DAY_FIELDS = [...FOOD_DAY_FIELDS, ...SLEEP_DAY_FIELDS];
 const DAY_LABELS = [
   ["Po", "Pondeli"],
   ["Ut", "Utery"],
@@ -329,7 +344,7 @@ function createAccountState(theme = "dark") {
 function normalizeState(value, fallback = createDefaultState()) {
   const next = {
     theme: value?.theme === "light" ? "light" : "dark",
-    activeView: ["plan", "nutrition", "feed", "posts", "leaderboard", "profile"].includes(value?.activeView) ? value.activeView : "plan",
+    activeView: ["plan", "nutrition", "sleep", "feed", "posts", "leaderboard", "profile"].includes(value?.activeView) ? value.activeView : "plan",
     selectedDay: Number.isInteger(value?.selectedDay) ? value.selectedDay : fallback.selectedDay,
     weekStart: value?.weekStart || fallback.weekStart,
     weeks: value?.weeks && typeof value.weeks === "object" ? value.weeks : fallback.weeks,
@@ -400,7 +415,7 @@ function normalizeSet(set) {
 }
 
 function save() {
-  if (state.activeView === "nutrition") {
+  if (state.activeView === "nutrition" || state.activeView === "sleep") {
     saveLocal();
     markPendingNutritionSync();
     scheduleNutritionSync();
@@ -726,6 +741,14 @@ function createNutritionWeek(goals = DEFAULT_NUTRITION_GOALS) {
       morningWalkMinutes: "",
       weight: "",
       notes: "",
+      bedTime: "",
+      sleepTime: "",
+      wakeTime: "",
+      sleepQuality: "",
+      nightWakeups: "",
+      caffeine: "",
+      wokeWithoutAlarm: "",
+      sleepNotes: "",
       updatedAt: "",
       fieldUpdatedAt: {}
     }))
@@ -783,6 +806,14 @@ function normalizeNutritionWeek(nutrition) {
         morningWalkMinutes: normalizeOptionalNumber(day.morningWalkMinutes),
         weight: normalizeOptionalNumber(day.weight),
         notes: String(day.notes || ""),
+        bedTime: normalizeClockTime(day.bedTime),
+        sleepTime: normalizeClockTime(day.sleepTime),
+        wakeTime: normalizeClockTime(day.wakeTime),
+        sleepQuality: normalizeOptionalNumber(day.sleepQuality),
+        nightWakeups: normalizeOptionalNumber(day.nightWakeups),
+        caffeine: normalizeOptionalNumber(day.caffeine),
+        wokeWithoutAlarm: day.wokeWithoutAlarm === "yes" || day.wokeWithoutAlarm === true ? "yes" : "",
+        sleepNotes: String(day.sleepNotes || ""),
         updatedAt: normalizeIsoTimestamp(day.updatedAt || day.lastEditedAt || ""),
         fieldUpdatedAt: normalizeFieldUpdatedAt(day.fieldUpdatedAt || day.updatedAtByField, NUTRITION_DAY_FIELDS)
       };
@@ -944,13 +975,22 @@ function propagateNutritionGoalsFromWeek(weekStart, goals, changedField = null, 
 
 function hasNutritionDayField(day, key) {
   const value = day?.[key];
-  if (key === "notes") return Boolean(String(value || "").trim());
+  if (key === "notes" || key === "sleepNotes") return Boolean(String(value || "").trim());
+  if (key === "wokeWithoutAlarm") return value === "yes";
   return value !== "" && value !== null && value !== undefined;
 }
 
 function nutritionDayFieldCount(day) {
-  return NUTRITION_DAY_FIELDS
+  return [...FOOD_DAY_FIELDS, ...SLEEP_DAY_FIELDS]
     .filter((key) => hasNutritionDayField(day, key)).length;
+}
+
+function foodDayFieldCount(day) {
+  return FOOD_DAY_FIELDS.filter((key) => hasNutritionDayField(day, key)).length;
+}
+
+function sleepDayFieldCount(day) {
+  return SLEEP_DAY_FIELDS.filter((key) => hasNutritionDayField(day, key)).length;
 }
 
 function normalizeVisibility(value) {
@@ -1272,6 +1312,7 @@ function render() {
   const summary = summarizeWeek(week);
   const daySummary = summarizeDay(selected);
   const nutritionSummary = summarizeNutrition(nutrition);
+  const sleepSummary = summarizeSleep(nutrition);
   const lockedForAuth = cloud.configured && !cloud.session;
   const content = !cloud.ready
     ? renderLoadingShell()
@@ -1287,8 +1328,10 @@ function render() {
         ? renderPostsShell()
         : state.activeView === "leaderboard"
           ? renderLeaderboardShell()
-          : state.activeView === "nutrition"
-            ? renderNutritionShell(nutrition, nutritionSummary)
+          : state.activeView === "sleep"
+            ? renderSleepShell(nutrition, sleepSummary)
+            : state.activeView === "nutrition"
+              ? renderNutritionShell(nutrition, nutritionSummary)
         : `
           <div class="shell">
             ${renderWeekPanel(week)}
@@ -1311,6 +1354,7 @@ function render() {
           <nav class="view-tabs" aria-label="Hlavni navigace">
             ${renderViewButton("plan", "Plan")}
             ${renderViewButton("nutrition", "Nutrition")}
+            ${renderViewButton("sleep", "Sleep")}
             ${renderViewButton("feed", "Feed")}
             ${renderViewButton("leaderboard", "Progress")}
             ${renderViewButton("posts", "Posty")}
@@ -1319,7 +1363,7 @@ function render() {
             <button class="icon-btn" data-action="prev-week" title="Predchozi tyden" aria-label="Predchozi tyden">&lt;</button>
             <div class="week-label">
               <strong>${weekRangeLabel(state.weekStart)}</strong>
-              <span ${state.activeView === "nutrition" ? `data-nutrition-summary="header"` : ""}>${state.activeView === "nutrition" ? `${formatNumber(nutritionSummary.totalCalories)}/${formatNumber(nutrition.goals.weeklyCalories)} kcal` : `${summary.completed}/${summary.totalSets} serii hotovo`}</span>
+              <span ${state.activeView === "nutrition" ? `data-nutrition-summary="header"` : state.activeView === "sleep" ? `data-sleep-summary="header"` : ""}>${renderWeekHeaderMeta(summary, nutrition, nutritionSummary, sleepSummary)}</span>
             </div>
             <button class="icon-btn" data-action="next-week" title="Dalsi tyden" aria-label="Dalsi tyden">&gt;</button>
             <button class="btn" data-action="today">Dnes</button>
@@ -1358,6 +1402,16 @@ function restoreDayListScroll(scrollLeft) {
 function renderViewButton(view, label) {
   const active = state.activeView === view ? " active" : "";
   return `<button class="view-tab${active}" data-action="set-view" data-view="${view}">${label}</button>`;
+}
+
+function renderWeekHeaderMeta(summary, nutrition, nutritionSummary, sleepSummary) {
+  if (state.activeView === "nutrition") {
+    return `${formatNumber(nutritionSummary.totalCalories)}/${formatNumber(nutrition.goals.weeklyCalories)} kcal`;
+  }
+  if (state.activeView === "sleep") {
+    return `${formatSleepMinutes(sleepSummary.totalSleepMinutes)} spanku`;
+  }
+  return `${summary.completed}/${summary.totalSets} serii hotovo`;
 }
 
 function renderCloudBadge() {
@@ -1752,8 +1806,6 @@ function renderNutritionShell(nutrition, summary) {
               ${renderNutritionGoal("protein", "Protein g", nutrition.goals.protein, 5)}
               ${renderNutritionGoal("carbs", "Carbs g", nutrition.goals.carbs, 5)}
               ${renderNutritionGoal("fat", "Fat g", nutrition.goals.fat, 5)}
-              ${renderNutritionGoal("bookPages", "Book pages", nutrition.goals.bookPages, 1)}
-              ${renderNutritionGoal("morningWalkMinutes", "Morning walk / week", nutrition.goals.morningWalkMinutes, 5)}
               <label class="field">
                 <span>Last cheat meal</span>
                 <input class="input" type="date" data-field="nutrition-cheat" value="${escapeAttr(nutrition.lastCheatMeal)}">
@@ -1762,22 +1814,20 @@ function renderNutritionShell(nutrition, summary) {
           </section>
           <section class="nutrition-card">
             <div class="section-row">
-              <h3>Current macros & habits</h3>
+              <h3>Current macros</h3>
               <span class="pill done" data-nutrition-summary="macroTotals">${formatNumber(summary.totalProtein)}P / ${formatNumber(summary.totalCarbs)}C / ${formatNumber(summary.totalFat)}F</span>
             </div>
             <div class="macro-bars">
               ${renderMacroBar("Protein", "protein", summary.totalProtein, nutrition.goals.protein * 7)}
               ${renderMacroBar("Carbs", "carbs", summary.totalCarbs, nutrition.goals.carbs * 7)}
               ${renderMacroBar("Fat", "fat", summary.totalFat, nutrition.goals.fat * 7)}
-              ${renderMacroBar("Book pages", "bookPages", summary.totalBookPages, nutrition.goals.bookPages, "pages")}
-              ${renderMacroBar("Morning walk week", "morningWalkMinutes", summary.totalMorningWalkMinutes, nutrition.goals.morningWalkMinutes, "min")}
             </div>
           </section>
         </div>
         <section class="nutrition-card">
           <div class="section-row">
             <h3>Daily log</h3>
-            <span class="microcopy">Calories, macros, reading, walking, bodyweight and quick notes</span>
+            <span class="microcopy">Calories, macros, bodyweight and quick notes</span>
           </div>
           <div class="nutrition-day-cards">
             ${renderNutritionDayPager(nutrition)}
@@ -1791,8 +1841,6 @@ function renderNutritionShell(nutrition, summary) {
                   <th>Protein</th>
                   <th>Carbs</th>
                   <th>Fat</th>
-                  <th>Pages</th>
-                  <th>Walk min</th>
                   <th>Weight</th>
                   <th>Note</th>
                 </tr>
@@ -1815,6 +1863,216 @@ function renderNutritionShell(nutrition, summary) {
         </section>
       </section>
     </main>
+  `;
+}
+
+function renderSleepShell(nutrition, summary) {
+  const routineProgress = Math.round((summary.bookProgress + summary.walkProgress) / 2);
+  return `
+    <main class="nutrition-shell sleep-shell">
+      <section class="nutrition-main">
+        <div class="nutrition-head">
+          <div>
+            <p class="eyebrow">Sleep & routine</p>
+            <h2>Spanek a ranni rutina</h2>
+            <p class="auth-copy">Rucni sleep log, kvalita spanku, kofein, probuzeni bez budiku, knizky a ranni chuze mimo jidelnicek.</p>
+          </div>
+        </div>
+        <div class="nutrition-metrics">
+          <div class="metric hero-metric"><strong data-sleep-summary="averageSleep">${formatSleepMinutes(summary.averageSleepMinutes)}</strong><span>Prumer spanku</span></div>
+          <div class="metric"><strong data-sleep-summary="averageQuality">${summary.averageQuality ? `${formatNumber(summary.averageQuality)}/5` : "-"}</strong><span>Kvalita</span></div>
+          <div class="metric"><strong data-sleep-summary="bookPages">${formatNumber(summary.totalBookPages)}/${formatNumber(nutrition.goals.bookPages)}</strong><span>Stranky tydne</span></div>
+          <div class="metric"><strong data-sleep-summary="walkMinutes">${formatNumber(summary.totalMorningWalkMinutes)}/${formatNumber(nutrition.goals.morningWalkMinutes)}</strong><span>Ranni chuze min</span></div>
+        </div>
+        <div class="nutrition-grid">
+          <section class="nutrition-card">
+            <div class="section-row">
+              <h3>Weekly routine targets</h3>
+              <span class="pill" data-sleep-summary="routineProgress">${routineProgress}%</span>
+            </div>
+            <div class="goal-grid sleep-goal-grid">
+              ${renderSleepGoal("bookPages", "Book pages / week", nutrition.goals.bookPages, 1)}
+              ${renderSleepGoal("morningWalkMinutes", "Morning walk / week", nutrition.goals.morningWalkMinutes, 5)}
+            </div>
+          </section>
+          <section class="nutrition-card">
+            <div class="section-row">
+              <h3>Weekly rhythm</h3>
+              <span class="pill done" data-sleep-summary="daysLogged">${summary.sleepLoggedDays}/7 dni</span>
+            </div>
+            <div class="macro-bars">
+              ${renderMacroBar("Book pages", "sleepBookPages", summary.totalBookPages, nutrition.goals.bookPages, "pages")}
+              ${renderMacroBar("Morning walk", "sleepMorningWalk", summary.totalMorningWalkMinutes, nutrition.goals.morningWalkMinutes, "min")}
+              ${renderMacroBar("Bez budiku", "sleepNoAlarm", summary.noAlarmDays, 7, "dni")}
+            </div>
+          </section>
+        </div>
+        <section class="nutrition-card">
+          <div class="section-row">
+            <h3>Daily sleep log</h3>
+            <span class="microcopy">Cas ulehnuti, usnuti, probuzeni, kvalita, kofein, knizky a chuze</span>
+          </div>
+          <div class="nutrition-day-cards">
+            ${renderSleepDayPager(nutrition)}
+          </div>
+          <div class="nutrition-table-wrap">
+            <table class="nutrition-table sleep-table">
+              <thead>
+                <tr>
+                  <th>Day</th>
+                  <th>Ulehnuti</th>
+                  <th>Usnuti</th>
+                  <th>Probuzeni</th>
+                  <th>Spanek</th>
+                  <th>Kvalita</th>
+                  <th>Bez budiku</th>
+                  <th>Noc</th>
+                  <th>Kofein</th>
+                  <th>Pages</th>
+                  <th>Walk min</th>
+                  <th>Note</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${nutrition.days.map((day, index) => renderSleepDayRow(day, index)).join("")}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+  `;
+}
+
+function renderSleepDayPager(nutrition) {
+  const dayIndex = Math.max(0, Math.min(6, state.selectedDay));
+  const day = nutrition.days[dayIndex] || createNutritionWeek().days[dayIndex];
+  const date = addDays(parseDate(state.weekStart), dayIndex);
+  return `
+    <div class="nutrition-day-pager">
+      <div class="nutrition-day-switcher">
+        <button class="icon-btn" data-action="prev-nutrition-day" title="Predchozi den" aria-label="Predchozi den">&lt;</button>
+        <div class="nutrition-day-current">
+          <strong>${DAY_LABELS[dayIndex][1]}</strong>
+          <span>${formatShortDate(date)}</span>
+        </div>
+        <button class="icon-btn" data-action="next-nutrition-day" title="Dalsi den" aria-label="Dalsi den">&gt;</button>
+      </div>
+      <div class="nutrition-day-tabs" aria-label="Vyber dne">
+        ${DAY_LABELS.map((label, index) => `
+          <button class="nutrition-day-tab${index === dayIndex ? " active" : ""}" data-action="select-nutrition-day" data-day="${index}">
+            ${label[0]}
+          </button>
+        `).join("")}
+      </div>
+      ${renderSleepDayCard(day, dayIndex)}
+    </div>
+  `;
+}
+
+function renderSleepDayCard(day, index) {
+  const date = addDays(parseDate(state.weekStart), index);
+  return `
+    <article class="nutrition-day-card sleep-day-card">
+      <div class="nutrition-day-card-head">
+        <div class="nutrition-day-title">
+          <strong>${DAY_LABELS[index][1]}</strong>
+          <span data-sleep-card-meta="${index}">${formatShortDate(date)} - ${formatSleepMinutes(sleepMinutesForDay(day))}</span>
+        </div>
+        ${renderSleepCardInput(index, "sleepQuality", "Kvalita 1-5", day.sleepQuality, 1, 1, 5)}
+      </div>
+      <div class="nutrition-day-grid sleep-day-grid">
+        ${renderSleepTimeInput(index, "bedTime", "Ulehnuti", day.bedTime)}
+        ${renderSleepTimeInput(index, "sleepTime", "Usnuti", day.sleepTime)}
+        ${renderSleepTimeInput(index, "wakeTime", "Probuzeni", day.wakeTime)}
+        ${renderSleepCardInput(index, "nightWakeups", "Probuzeni v noci", day.nightWakeups, 1, 0)}
+        ${renderSleepCardInput(index, "caffeine", "Kofein mg", day.caffeine, 25, 0)}
+        ${renderSleepCardInput(index, "bookPages", "Stranky", day.bookPages, 1, 0)}
+        ${renderSleepCardInput(index, "morningWalkMinutes", "Ranni chuze min", day.morningWalkMinutes, 5, 0)}
+        ${renderSleepCheckbox(index, "wokeWithoutAlarm", "Bez budiku", day.wokeWithoutAlarm)}
+      </div>
+      <label class="field">
+        <span>Poznamka</span>
+        <input class="input" data-field="sleep-day" data-day="${index}" data-nutrition="sleepNotes" value="${escapeAttr(day.sleepNotes)}" placeholder="Co ovlivnilo spanek?">
+      </label>
+    </article>
+  `;
+}
+
+function renderSleepGoal(field, label, value, step) {
+  return `
+    <label class="field">
+      <span>${label}</span>
+      <input class="input" type="number" min="0" step="${step}" data-field="sleep-goal" data-goal="${field}" value="${escapeAttr(value)}">
+    </label>
+  `;
+}
+
+function renderSleepTimeInput(dayIndex, field, label, value) {
+  return `
+    <label class="field">
+      <span>${label}</span>
+      <input class="input" type="time" data-field="sleep-day" data-day="${dayIndex}" data-nutrition="${field}" value="${escapeAttr(value)}">
+    </label>
+  `;
+}
+
+function renderSleepCardInput(dayIndex, field, label, value, step, min = 0, max = "") {
+  const maxAttr = max === "" ? "" : ` max="${max}"`;
+  return `
+    <label class="field">
+      <span>${label}</span>
+      <input class="input" type="number" min="${min}"${maxAttr} step="${step}" data-field="sleep-day" data-day="${dayIndex}" data-nutrition="${field}" value="${escapeAttr(value)}">
+    </label>
+  `;
+}
+
+function renderSleepCheckbox(dayIndex, field, label, value) {
+  return `
+    <label class="sleep-check">
+      <input type="checkbox" data-field="sleep-day" data-day="${dayIndex}" data-nutrition="${field}" ${value === "yes" ? "checked" : ""}>
+      <span>${label}</span>
+    </label>
+  `;
+}
+
+function renderSleepDayRow(day, index) {
+  const date = addDays(parseDate(state.weekStart), index);
+  return `
+    <tr>
+      <th>
+        <strong>${DAY_LABELS[index][0]}</strong>
+        <span>${formatShortDate(date)}</span>
+      </th>
+      ${renderSleepTableTimeInput(index, "bedTime", day.bedTime)}
+      ${renderSleepTableTimeInput(index, "sleepTime", day.sleepTime)}
+      ${renderSleepTableTimeInput(index, "wakeTime", day.wakeTime)}
+      <td><strong class="sleep-duration" data-sleep-duration-day="${index}">${formatSleepMinutes(sleepMinutesForDay(day))}</strong></td>
+      ${renderSleepInput(index, "sleepQuality", day.sleepQuality, 1, 1, 5)}
+      <td>${renderSleepCheckbox(index, "wokeWithoutAlarm", "Ano", day.wokeWithoutAlarm)}</td>
+      ${renderSleepInput(index, "nightWakeups", day.nightWakeups, 1)}
+      ${renderSleepInput(index, "caffeine", day.caffeine, 25)}
+      ${renderSleepInput(index, "bookPages", day.bookPages, 1)}
+      ${renderSleepInput(index, "morningWalkMinutes", day.morningWalkMinutes, 5)}
+      <td><input class="input" data-field="sleep-day" data-day="${index}" data-nutrition="sleepNotes" value="${escapeAttr(day.sleepNotes)}" placeholder="Sleep note"></td>
+    </tr>
+  `;
+}
+
+function renderSleepTableTimeInput(dayIndex, field, value) {
+  return `
+    <td>
+      <input class="input" type="time" data-field="sleep-day" data-day="${dayIndex}" data-nutrition="${field}" value="${escapeAttr(value)}">
+    </td>
+  `;
+}
+
+function renderSleepInput(dayIndex, field, value, step, min = 0, max = "") {
+  const maxAttr = max === "" ? "" : ` max="${max}"`;
+  return `
+    <td>
+      <input class="input" type="number" min="${min}"${maxAttr} step="${step}" data-field="sleep-day" data-day="${dayIndex}" data-nutrition="${field}" value="${escapeAttr(value)}">
+    </td>
   `;
 }
 
@@ -2213,8 +2471,6 @@ function renderNutritionDayCard(day, index) {
         ${renderNutritionCardInput(index, "protein", "Protein", day.protein, 1)}
         ${renderNutritionCardInput(index, "carbs", "Carbs", day.carbs, 1)}
         ${renderNutritionCardInput(index, "fat", "Fat", day.fat, 1)}
-        ${renderNutritionCardInput(index, "bookPages", "Stranky", day.bookPages, 1)}
-        ${renderNutritionCardInput(index, "morningWalkMinutes", "Prochazka min", day.morningWalkMinutes, 5)}
         ${renderNutritionCardInput(index, "weight", "Vaha", day.weight, 0.1)}
       </div>
       <label class="field">
@@ -2269,8 +2525,6 @@ function renderNutritionDayRow(day, index) {
       ${renderNutritionInput(index, "protein", day.protein, 1)}
       ${renderNutritionInput(index, "carbs", day.carbs, 1)}
       ${renderNutritionInput(index, "fat", day.fat, 1)}
-      ${renderNutritionInput(index, "bookPages", day.bookPages, 1)}
-      ${renderNutritionInput(index, "morningWalkMinutes", day.morningWalkMinutes, 5)}
       ${renderNutritionInput(index, "weight", day.weight, 0.1)}
       <td><input class="input" data-field="nutrition-day" data-day="${index}" data-nutrition="notes" value="${escapeAttr(day.notes)}" placeholder="Meal note"></td>
     </tr>
@@ -2891,7 +3145,7 @@ async function handleClick(event) {
 
   if (action === "set-view") {
     const nextView = target.dataset.view;
-    if (!["plan", "nutrition", "feed", "posts", "leaderboard", "profile"].includes(nextView)) return;
+    if (!["plan", "nutrition", "sleep", "feed", "posts", "leaderboard", "profile"].includes(nextView)) return;
     if (nextView === "feed" && state.activeView !== "feed") {
       setSelectedDate(new Date());
       ensureWeek();
@@ -2901,11 +3155,11 @@ async function handleClick(event) {
     state.activeView = nextView;
     saveLocal();
     render();
-    if (nextView === "nutrition") await loadCloudNutritionWeek();
+    if (nextView === "nutrition" || nextView === "sleep") await loadCloudNutritionWeek();
     if (nextView === "feed") await loadCloudWeek();
     if (nextView === "feed" || nextView === "posts" || nextView === "leaderboard") await loadSocialData();
     await flushPendingSync();
-    if (nextView === "nutrition") saveLocal();
+    if (nextView === "nutrition" || nextView === "sleep") saveLocal();
     render();
     return;
   }
@@ -3078,10 +3332,18 @@ async function handleClick(event) {
       showToast("Minuly tyden zatim nema nutrition data.");
       return;
     }
-    state.nutrition[state.weekStart] = cloneNutritionWeek(state.nutrition[previousStart], true);
+    const previous = normalizeNutritionWeek(state.nutrition[previousStart]);
+    const current = cloneNutritionWeek(ensureNutritionWeek(), false);
+    const editedAt = new Date().toISOString();
+    FOOD_GOAL_FIELDS.forEach((field) => {
+      current.goals[field] = previous.goals[field];
+      current.goalsUpdatedAt[field] = previous.goalsUpdatedAt[field] || editedAt;
+    });
+    state.nutrition[state.weekStart] = current;
+    markPendingNutritionSync(state.weekStart);
     save();
     render();
-    showToast("Nutrition targets zkopirovany.");
+    showToast("Nutrition targets zkopirovany. Sleep rutina zustala.");
     return;
   }
 
@@ -3850,9 +4112,24 @@ function handleInput(event) {
     return;
   }
 
+  if (field === "sleep-day") {
+    updateNutritionDay(event.target);
+    syncSleepInputs(event.target);
+    refreshSleepSummary();
+    save();
+    return;
+  }
+
   if (field === "nutrition-goal") {
     updateNutritionGoal(event.target);
     refreshNutritionSummary();
+    save();
+    return;
+  }
+
+  if (field === "sleep-goal") {
+    updateNutritionGoal(event.target);
+    refreshSleepSummary();
     save();
     return;
   }
@@ -3942,9 +4219,24 @@ function handleChange(event) {
     return;
   }
 
+  if (field === "sleep-day") {
+    updateNutritionDay(event.target);
+    syncSleepInputs(event.target);
+    refreshSleepSummary();
+    save();
+    return;
+  }
+
   if (field === "nutrition-goal") {
     updateNutritionGoal(event.target);
     refreshNutritionSummary();
+    save();
+    return;
+  }
+
+  if (field === "sleep-goal") {
+    updateNutritionGoal(event.target);
+    refreshSleepSummary();
     save();
     return;
   }
@@ -5383,7 +5675,7 @@ function scheduleCloudSync() {
 }
 
 function scheduleNutritionSync() {
-  if (!cloud.client || !cloud.session || state.activeView !== "nutrition") return;
+  if (!cloud.client || !cloud.session || !["nutrition", "sleep"].includes(state.activeView)) return;
   clearTimeout(nutritionSyncTimer);
   nutritionSyncTimer = setTimeout(() => {
     runPendingSyncNow("Nutrition cloud ulozeni se nepovedlo.");
@@ -5806,9 +6098,15 @@ function updateNutritionDay(input) {
   if (!nutrition.days[dayIndex] || !field) return;
   const day = nutrition.days[dayIndex];
   const editedAt = new Date().toISOString();
-  day[field] = field === "notes"
-    ? input.value
-    : normalizeOptionalNumber(input.value);
+  if (field === "wokeWithoutAlarm") {
+    day[field] = input.checked ? "yes" : "";
+  } else if (field === "notes" || field === "sleepNotes") {
+    day[field] = input.value;
+  } else if (["bedTime", "sleepTime", "wakeTime"].includes(field)) {
+    day[field] = normalizeClockTime(input.value);
+  } else {
+    day[field] = normalizeOptionalNumber(input.value);
+  }
   day.fieldUpdatedAt = {
     ...normalizeFieldUpdatedAt(day.fieldUpdatedAt, NUTRITION_DAY_FIELDS),
     [field]: editedAt
@@ -5942,15 +6240,27 @@ async function loadWeekForCopy(weekStart) {
 }
 
 function syncNutritionInputs(sourceInput) {
+  syncDayInputs(sourceInput, "nutrition-day");
+}
+
+function syncSleepInputs(sourceInput) {
+  syncDayInputs(sourceInput, "sleep-day");
+}
+
+function syncDayInputs(sourceInput, fieldName) {
   const day = sourceInput.dataset.day;
   const field = sourceInput.dataset.nutrition;
   if (day === undefined || !field) return;
 
   document
-    .querySelectorAll("[data-field='nutrition-day']")
+    .querySelectorAll(`[data-field='${fieldName}']`)
     .forEach((input) => {
       if (input !== sourceInput && input.dataset.day === day && input.dataset.nutrition === field) {
-        input.value = sourceInput.value;
+        if (input.type === "checkbox") {
+          input.checked = sourceInput.checked;
+        } else {
+          input.value = sourceInput.value;
+        }
       }
     });
 }
@@ -5975,8 +6285,30 @@ function refreshNutritionSummary() {
   refreshMacroSummary("protein", summary.totalProtein, nutrition.goals.protein * 7);
   refreshMacroSummary("carbs", summary.totalCarbs, nutrition.goals.carbs * 7);
   refreshMacroSummary("fat", summary.totalFat, nutrition.goals.fat * 7);
-  refreshMacroSummary("bookPages", summary.totalBookPages, nutrition.goals.bookPages);
-  refreshMacroSummary("morningWalkMinutes", summary.totalMorningWalkMinutes, nutrition.goals.morningWalkMinutes);
+}
+
+function refreshSleepSummary() {
+  if (state.activeView !== "sleep") return;
+  const nutrition = ensureNutritionWeek();
+  const summary = summarizeSleep(nutrition);
+  const routineProgress = Math.round((summary.bookProgress + summary.walkProgress) / 2);
+
+  setText("[data-sleep-summary='header']", `${formatSleepMinutes(summary.totalSleepMinutes)} spanku`);
+  setText("[data-sleep-summary='averageSleep']", formatSleepMinutes(summary.averageSleepMinutes));
+  setText("[data-sleep-summary='averageQuality']", summary.averageQuality ? `${formatNumber(summary.averageQuality)}/5` : "-");
+  setText("[data-sleep-summary='bookPages']", `${formatNumber(summary.totalBookPages)}/${formatNumber(nutrition.goals.bookPages)}`);
+  setText("[data-sleep-summary='walkMinutes']", `${formatNumber(summary.totalMorningWalkMinutes)}/${formatNumber(nutrition.goals.morningWalkMinutes)}`);
+  setText("[data-sleep-summary='routineProgress']", `${routineProgress}%`);
+  setText("[data-sleep-summary='daysLogged']", `${summary.sleepLoggedDays}/7 dni`);
+
+  refreshMacroSummary("sleepBookPages", summary.totalBookPages, nutrition.goals.bookPages);
+  refreshMacroSummary("sleepMorningWalk", summary.totalMorningWalkMinutes, nutrition.goals.morningWalkMinutes);
+  refreshMacroSummary("sleepNoAlarm", summary.noAlarmDays, 7);
+  nutrition.days.forEach((day, index) => {
+    const date = addDays(parseDate(state.weekStart), index);
+    setText(`[data-sleep-card-meta="${index}"]`, `${formatShortDate(date)} - ${formatSleepMinutes(sleepMinutesForDay(day))}`);
+    setText(`[data-sleep-duration-day="${index}"]`, formatSleepMinutes(sleepMinutesForDay(day)));
+  });
 }
 
 function refreshMacroSummary(key, value, goal) {
@@ -6307,8 +6639,6 @@ function summarizeNutrition(nutrition) {
   const totalProtein = days.reduce((sum, day) => sum + toNumber(day.protein, 0), 0);
   const totalCarbs = days.reduce((sum, day) => sum + toNumber(day.carbs, 0), 0);
   const totalFat = days.reduce((sum, day) => sum + toNumber(day.fat, 0), 0);
-  const totalBookPages = days.reduce((sum, day) => sum + toNumber(day.bookPages, 0), 0);
-  const totalMorningWalkMinutes = days.reduce((sum, day) => sum + toNumber(day.morningWalkMinutes, 0), 0);
   const daysLogged = days.filter((day) => toNumber(day.calories, 0) > 0).length;
   const weights = days
     .filter((day) => day.weight !== "" && day.weight !== null && day.weight !== undefined)
@@ -6323,13 +6653,43 @@ function summarizeNutrition(nutrition) {
     totalProtein,
     totalCarbs,
     totalFat,
-    totalBookPages,
-    totalMorningWalkMinutes,
     latestWeight,
     daysLogged,
     averageCalories: daysLogged ? Math.round(totalCalories / daysLogged) : 0,
     remainingCalories: Math.max(0, weeklyGoal - totalCalories),
     progress
+  };
+}
+
+function summarizeSleep(nutrition) {
+  const days = nutrition.days || [];
+  const totalSleepMinutes = days.reduce((sum, day) => sum + sleepMinutesForDay(day), 0);
+  const sleepLoggedDays = days.filter((day) => sleepMinutesForDay(day) > 0).length;
+  const qualities = days
+    .map((day) => toNumber(day.sleepQuality, NaN))
+    .filter(Number.isFinite);
+  const totalBookPages = days.reduce((sum, day) => sum + toNumber(day.bookPages, 0), 0);
+  const totalMorningWalkMinutes = days.reduce((sum, day) => sum + toNumber(day.morningWalkMinutes, 0), 0);
+  const noAlarmDays = days.filter((day) => day.wokeWithoutAlarm === "yes").length;
+  const nightWakeups = days.reduce((sum, day) => sum + toNumber(day.nightWakeups, 0), 0);
+  const caffeine = days.reduce((sum, day) => sum + toNumber(day.caffeine, 0), 0);
+  const bookGoal = toNumber(nutrition.goals?.bookPages, 0);
+  const walkGoal = toNumber(nutrition.goals?.morningWalkMinutes, 0);
+
+  return {
+    totalSleepMinutes,
+    sleepLoggedDays,
+    averageSleepMinutes: sleepLoggedDays ? Math.round(totalSleepMinutes / sleepLoggedDays) : 0,
+    averageQuality: qualities.length
+      ? Math.round((qualities.reduce((sum, value) => sum + value, 0) / qualities.length) * 10) / 10
+      : 0,
+    totalBookPages,
+    totalMorningWalkMinutes,
+    noAlarmDays,
+    nightWakeups,
+    caffeine,
+    bookProgress: bookGoal ? Math.min(100, Math.round((totalBookPages / bookGoal) * 100)) : 0,
+    walkProgress: walkGoal ? Math.min(100, Math.round((totalMorningWalkMinutes / walkGoal) * 100)) : 0
   };
 }
 
@@ -6554,6 +6914,44 @@ function normalizeOptionalNumber(value) {
   if (value === "" || value === null || value === undefined) return "";
   const number = Number(value);
   return Number.isFinite(number) ? number : "";
+}
+
+function normalizeClockTime(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return "";
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return "";
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function parseClockMinutes(value) {
+  const time = normalizeClockTime(value);
+  if (!time) return null;
+  const [hours, minutes] = time.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function minutesBetweenClockTimes(start, end) {
+  const startMinutes = parseClockMinutes(start);
+  const endMinutes = parseClockMinutes(end);
+  if (startMinutes === null || endMinutes === null) return 0;
+  let diff = endMinutes - startMinutes;
+  if (diff < 0) diff += 24 * 60;
+  return diff;
+}
+
+function sleepMinutesForDay(day) {
+  return minutesBetweenClockTimes(day?.sleepTime || day?.bedTime, day?.wakeTime);
+}
+
+function formatSleepMinutes(minutes) {
+  const value = Math.round(toNumber(minutes, 0));
+  if (!value) return "0h";
+  const hours = Math.floor(value / 60);
+  const rest = value % 60;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
 }
 
 function escapeHtml(value) {
