@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "78";
+const APP_VERSION = "79";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -758,11 +758,18 @@ function createNutritionPhaseRow(index) {
 
 function normalizeNutritionWeek(nutrition) {
   const fallback = createNutritionWeek();
-  const sourceGoals = nutrition?.goals || {};
+  const sourceGoals = { ...(nutrition?.goals || {}) };
+  const goalsUpdatedAt = normalizeFieldUpdatedAt(nutrition?.goalsUpdatedAt, NUTRITION_GOAL_FIELDS);
+  if (
+    !goalsUpdatedAt.morningWalkMinutes &&
+    toNumber(sourceGoals.morningWalkMinutes, NaN) === DEFAULT_NUTRITION_GOALS.fat
+  ) {
+    sourceGoals.morningWalkMinutes = DEFAULT_NUTRITION_GOALS.morningWalkMinutes;
+  }
   const days = Array.isArray(nutrition?.days) ? nutrition.days : [];
   return {
     goals: normalizeNutritionGoals(sourceGoals, fallback.goals),
-    goalsUpdatedAt: normalizeFieldUpdatedAt(nutrition?.goalsUpdatedAt, NUTRITION_GOAL_FIELDS),
+    goalsUpdatedAt,
     lastCheatMeal: String(nutrition?.lastCheatMeal || ""),
     lastCheatMealUpdatedAt: normalizeIsoTimestamp(nutrition?.lastCheatMealUpdatedAt || ""),
     days: DAY_LABELS.map((_, index) => {
@@ -1746,7 +1753,7 @@ function renderNutritionShell(nutrition, summary) {
               ${renderNutritionGoal("carbs", "Carbs g", nutrition.goals.carbs, 5)}
               ${renderNutritionGoal("fat", "Fat g", nutrition.goals.fat, 5)}
               ${renderNutritionGoal("bookPages", "Book pages", nutrition.goals.bookPages, 1)}
-              ${renderNutritionGoal("morningWalkMinutes", "Morning walk min", nutrition.goals.morningWalkMinutes, 5)}
+              ${renderNutritionGoal("morningWalkMinutes", "Morning walk / week", nutrition.goals.morningWalkMinutes, 5)}
               <label class="field">
                 <span>Last cheat meal</span>
                 <input class="input" type="date" data-field="nutrition-cheat" value="${escapeAttr(nutrition.lastCheatMeal)}">
@@ -1763,7 +1770,7 @@ function renderNutritionShell(nutrition, summary) {
               ${renderMacroBar("Carbs", "carbs", summary.totalCarbs, nutrition.goals.carbs * 7)}
               ${renderMacroBar("Fat", "fat", summary.totalFat, nutrition.goals.fat * 7)}
               ${renderMacroBar("Book pages", "bookPages", summary.totalBookPages, nutrition.goals.bookPages, "pages")}
-              ${renderMacroBar("Morning walk", "morningWalkMinutes", summary.totalMorningWalkMinutes, nutrition.goals.morningWalkMinutes, "min")}
+              ${renderMacroBar("Morning walk week", "morningWalkMinutes", summary.totalMorningWalkMinutes, nutrition.goals.morningWalkMinutes, "min")}
             </div>
           </section>
         </div>
