@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "77";
+const APP_VERSION = "78";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -21,10 +21,12 @@ const DEFAULT_NUTRITION_GOALS = {
   weeklyCalories: 16000,
   protein: 180,
   carbs: 250,
-  fat: 55
+  fat: 55,
+  bookPages: 40,
+  morningWalkMinutes: 100
 };
 const NUTRITION_GOAL_FIELDS = Object.keys(DEFAULT_NUTRITION_GOALS);
-const NUTRITION_DAY_FIELDS = ["calories", "protein", "carbs", "fat", "weight", "notes"];
+const NUTRITION_DAY_FIELDS = ["calories", "protein", "carbs", "fat", "bookPages", "morningWalkMinutes", "weight", "notes"];
 const DAY_LABELS = [
   ["Po", "Pondeli"],
   ["Ut", "Utery"],
@@ -720,6 +722,8 @@ function createNutritionWeek(goals = DEFAULT_NUTRITION_GOALS) {
       protein: "",
       carbs: "",
       fat: "",
+      bookPages: "",
+      morningWalkMinutes: "",
       weight: "",
       notes: "",
       updatedAt: "",
@@ -768,6 +772,8 @@ function normalizeNutritionWeek(nutrition) {
         protein: normalizeOptionalNumber(day.protein),
         carbs: normalizeOptionalNumber(day.carbs),
         fat: normalizeOptionalNumber(day.fat),
+        bookPages: normalizeOptionalNumber(day.bookPages),
+        morningWalkMinutes: normalizeOptionalNumber(day.morningWalkMinutes),
         weight: normalizeOptionalNumber(day.weight),
         notes: String(day.notes || ""),
         updatedAt: normalizeIsoTimestamp(day.updatedAt || day.lastEditedAt || ""),
@@ -883,7 +889,9 @@ function normalizeNutritionGoals(goals = {}, fallback = DEFAULT_NUTRITION_GOALS)
     weeklyCalories: toNumber(goals.weeklyCalories, fallback.weeklyCalories),
     protein: toNumber(goals.protein, fallback.protein),
     carbs: toNumber(goals.carbs, fallback.carbs),
-    fat: toNumber(goals.fat, fallback.fat)
+    fat: toNumber(goals.fat, fallback.fat),
+    bookPages: toNumber(goals.bookPages, fallback.bookPages),
+    morningWalkMinutes: toNumber(goals.morningWalkMinutes, fallback.morningWalkMinutes)
   };
 }
 
@@ -934,7 +942,7 @@ function hasNutritionDayField(day, key) {
 }
 
 function nutritionDayFieldCount(day) {
-  return ["calories", "protein", "carbs", "fat", "weight", "notes"]
+  return NUTRITION_DAY_FIELDS
     .filter((key) => hasNutritionDayField(day, key)).length;
 }
 
@@ -1737,6 +1745,8 @@ function renderNutritionShell(nutrition, summary) {
               ${renderNutritionGoal("protein", "Protein g", nutrition.goals.protein, 5)}
               ${renderNutritionGoal("carbs", "Carbs g", nutrition.goals.carbs, 5)}
               ${renderNutritionGoal("fat", "Fat g", nutrition.goals.fat, 5)}
+              ${renderNutritionGoal("bookPages", "Book pages", nutrition.goals.bookPages, 1)}
+              ${renderNutritionGoal("morningWalkMinutes", "Morning walk min", nutrition.goals.morningWalkMinutes, 5)}
               <label class="field">
                 <span>Last cheat meal</span>
                 <input class="input" type="date" data-field="nutrition-cheat" value="${escapeAttr(nutrition.lastCheatMeal)}">
@@ -1745,20 +1755,22 @@ function renderNutritionShell(nutrition, summary) {
           </section>
           <section class="nutrition-card">
             <div class="section-row">
-              <h3>Current macros</h3>
+              <h3>Current macros & habits</h3>
               <span class="pill done" data-nutrition-summary="macroTotals">${formatNumber(summary.totalProtein)}P / ${formatNumber(summary.totalCarbs)}C / ${formatNumber(summary.totalFat)}F</span>
             </div>
             <div class="macro-bars">
               ${renderMacroBar("Protein", "protein", summary.totalProtein, nutrition.goals.protein * 7)}
               ${renderMacroBar("Carbs", "carbs", summary.totalCarbs, nutrition.goals.carbs * 7)}
               ${renderMacroBar("Fat", "fat", summary.totalFat, nutrition.goals.fat * 7)}
+              ${renderMacroBar("Book pages", "bookPages", summary.totalBookPages, nutrition.goals.bookPages, "pages")}
+              ${renderMacroBar("Morning walk", "morningWalkMinutes", summary.totalMorningWalkMinutes, nutrition.goals.morningWalkMinutes, "min")}
             </div>
           </section>
         </div>
         <section class="nutrition-card">
           <div class="section-row">
             <h3>Daily log</h3>
-            <span class="microcopy">Calories, macros, bodyweight and quick notes</span>
+            <span class="microcopy">Calories, macros, reading, walking, bodyweight and quick notes</span>
           </div>
           <div class="nutrition-day-cards">
             ${renderNutritionDayPager(nutrition)}
@@ -1772,6 +1784,8 @@ function renderNutritionShell(nutrition, summary) {
                   <th>Protein</th>
                   <th>Carbs</th>
                   <th>Fat</th>
+                  <th>Pages</th>
+                  <th>Walk min</th>
                   <th>Weight</th>
                   <th>Note</th>
                 </tr>
@@ -2192,6 +2206,8 @@ function renderNutritionDayCard(day, index) {
         ${renderNutritionCardInput(index, "protein", "Protein", day.protein, 1)}
         ${renderNutritionCardInput(index, "carbs", "Carbs", day.carbs, 1)}
         ${renderNutritionCardInput(index, "fat", "Fat", day.fat, 1)}
+        ${renderNutritionCardInput(index, "bookPages", "Stranky", day.bookPages, 1)}
+        ${renderNutritionCardInput(index, "morningWalkMinutes", "Prochazka min", day.morningWalkMinutes, 5)}
         ${renderNutritionCardInput(index, "weight", "Vaha", day.weight, 0.1)}
       </div>
       <label class="field">
@@ -2220,13 +2236,14 @@ function renderNutritionGoal(field, label, value, step) {
   `;
 }
 
-function renderMacroBar(label, key, value, goal) {
+function renderMacroBar(label, key, value, goal, unit = "g") {
   const percent = goal ? Math.min(100, Math.round((value / goal) * 100)) : 0;
+  const unitLabel = unit ? ` ${unit}` : "";
   return `
-    <div class="macro-row" data-macro-row="${key}">
+    <div class="macro-row" data-macro-row="${key}" data-macro-unit="${escapeAttr(unit)}">
       <div>
         <strong>${label}</strong>
-        <span data-macro-text>${formatNumber(value)} / ${formatNumber(goal)} g</span>
+        <span data-macro-text>${formatNumber(value)} / ${formatNumber(goal)}${unitLabel}</span>
       </div>
       <div class="progress"><span data-macro-progress style="--value:${percent}%"></span></div>
     </div>
@@ -2245,6 +2262,8 @@ function renderNutritionDayRow(day, index) {
       ${renderNutritionInput(index, "protein", day.protein, 1)}
       ${renderNutritionInput(index, "carbs", day.carbs, 1)}
       ${renderNutritionInput(index, "fat", day.fat, 1)}
+      ${renderNutritionInput(index, "bookPages", day.bookPages, 1)}
+      ${renderNutritionInput(index, "morningWalkMinutes", day.morningWalkMinutes, 5)}
       ${renderNutritionInput(index, "weight", day.weight, 0.1)}
       <td><input class="input" data-field="nutrition-day" data-day="${index}" data-nutrition="notes" value="${escapeAttr(day.notes)}" placeholder="Meal note"></td>
     </tr>
@@ -5949,14 +5968,18 @@ function refreshNutritionSummary() {
   refreshMacroSummary("protein", summary.totalProtein, nutrition.goals.protein * 7);
   refreshMacroSummary("carbs", summary.totalCarbs, nutrition.goals.carbs * 7);
   refreshMacroSummary("fat", summary.totalFat, nutrition.goals.fat * 7);
+  refreshMacroSummary("bookPages", summary.totalBookPages, nutrition.goals.bookPages);
+  refreshMacroSummary("morningWalkMinutes", summary.totalMorningWalkMinutes, nutrition.goals.morningWalkMinutes);
 }
 
 function refreshMacroSummary(key, value, goal) {
   const percent = goal ? Math.min(100, Math.round((value / goal) * 100)) : 0;
   document.querySelectorAll(`[data-macro-row="${key}"]`).forEach((row) => {
+    const unit = row.dataset.macroUnit || "g";
+    const unitLabel = unit ? ` ${unit}` : "";
     const label = row.querySelector("[data-macro-text]");
     const bar = row.querySelector("[data-macro-progress]");
-    if (label) label.textContent = `${formatNumber(value)} / ${formatNumber(goal)} g`;
+    if (label) label.textContent = `${formatNumber(value)} / ${formatNumber(goal)}${unitLabel}`;
     if (bar) bar.style.setProperty("--value", `${percent}%`);
   });
 }
@@ -6277,6 +6300,8 @@ function summarizeNutrition(nutrition) {
   const totalProtein = days.reduce((sum, day) => sum + toNumber(day.protein, 0), 0);
   const totalCarbs = days.reduce((sum, day) => sum + toNumber(day.carbs, 0), 0);
   const totalFat = days.reduce((sum, day) => sum + toNumber(day.fat, 0), 0);
+  const totalBookPages = days.reduce((sum, day) => sum + toNumber(day.bookPages, 0), 0);
+  const totalMorningWalkMinutes = days.reduce((sum, day) => sum + toNumber(day.morningWalkMinutes, 0), 0);
   const daysLogged = days.filter((day) => toNumber(day.calories, 0) > 0).length;
   const weights = days
     .filter((day) => day.weight !== "" && day.weight !== null && day.weight !== undefined)
@@ -6291,6 +6316,8 @@ function summarizeNutrition(nutrition) {
     totalProtein,
     totalCarbs,
     totalFat,
+    totalBookPages,
+    totalMorningWalkMinutes,
     latestWeight,
     daysLogged,
     averageCalories: daysLogged ? Math.round(totalCalories / daysLogged) : 0,
