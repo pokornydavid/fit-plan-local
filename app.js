@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "88";
+const APP_VERSION = "89";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_LOCAL_UMD_URL = `./assets/supabase.min.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -82,6 +82,7 @@ let activeStorageKey = STORAGE_KEY;
 let activePendingSyncKey = PENDING_SYNC_KEY;
 let activeUserId = null;
 let state = loadState();
+let authScreenMode = "sign-in";
 let toastTimer = 0;
 let cloudSyncTimer = 0;
 let nutritionSyncTimer = 0;
@@ -1433,21 +1434,34 @@ function render() {
         `;
 
   app.innerHTML = `
-    <div class="app">
-      <header class="topbar">
+    <div class="app" data-active-view="${escapeAttr(state.activeView)}">
+      <header class="app-header">
+        <div class="topbar">
         <div class="brand">
-          <div class="brand-mark" aria-hidden="true">BB</div>
+          <div class="brand-mark" aria-hidden="true">
+            <img src="./icon.svg" alt="">
+          </div>
           <div class="brand-copy">
             <h1>${PRODUCT_NAME} <small>by David</small></h1>
             <span class="brand-subtitle">${cloud.configured ? "Performance cloud" : PRODUCT_TAGLINE}</span>
           </div>
         </div>
-        <div class="center-stack">
+        <div class="desktop-nav">
           <nav class="view-tabs" aria-label="Hlavni navigace">
             ${renderViewButton("plan", "Plan")}
             ${renderViewButton("nutrition", "Nutrition")}
             ${renderViewButton("sleep", "Routine")}
           </nav>
+        </div>
+        <div class="top-actions">
+          ${renderCloudBadge()}
+        </div>
+        </div>
+        <div class="context-bar">
+          <div class="context-copy">
+            <strong>${renderActiveViewTitle()}</strong>
+            <span>${renderActiveViewSubtitle()}</span>
+          </div>
           <div class="week-switcher" aria-label="Vyber tydne">
             <button class="icon-btn" data-action="prev-week" title="Predchozi tyden" aria-label="Predchozi tyden">&lt;</button>
             <div class="week-label">
@@ -1457,21 +1471,20 @@ function render() {
             <button class="icon-btn" data-action="next-week" title="Dalsi tyden" aria-label="Dalsi tyden">&gt;</button>
             <button class="btn" data-action="today">Dnes</button>
           </div>
-        </div>
-        <div class="top-actions">
-          ${renderCloudBadge()}
-          <button class="btn theme-toggle" data-action="toggle-theme" aria-pressed="${state.theme === "dark"}" title="Prepnout rezim">
-            <span class="theme-dot" aria-hidden="true"></span>
-            ${state.theme === "dark" ? "Tmavy" : "Svetly"}
-          </button>
-          ${cloud.session ? `<button class="btn" data-action="sign-out">Odhlasit</button>` : ""}
+          <div class="context-actions">
           ${state.activeView === "plan" && !lockedForAuth ? `
-            <button class="btn" data-action="open-copy-day-dialog">Kopirovat</button>
-            <button class="btn warn" data-action="sample-week">Demo plan</button>
+            <button class="btn subtle" data-action="open-copy-day-dialog">Kopirovat den</button>
+            <button class="btn subtle" data-action="sample-week">Demo plan</button>
           ` : ""}
+          </div>
         </div>
       </header>
       ${content}
+      <nav class="mobile-nav" aria-label="Mobilni navigace">
+        ${renderViewButton("plan", "Plan")}
+        ${renderViewButton("nutrition", "Nutrition")}
+        ${renderViewButton("sleep", "Routine")}
+      </nav>
       ${renderCopyDayDialog()}
       ${renderPhasePhotoViewer()}
       ${renderPhaseCompareViewer()}
@@ -1493,6 +1506,20 @@ function renderViewButton(view, label) {
   return `<button class="view-tab${active}" data-action="set-view" data-view="${view}">${label}</button>`;
 }
 
+function renderActiveViewTitle() {
+  if (state.activeView === "nutrition") return "Nutrition";
+  if (state.activeView === "sleep") return "Routine";
+  if (state.activeView === "profile") return "Account";
+  return "Training";
+}
+
+function renderActiveViewSubtitle() {
+  if (state.activeView === "nutrition") return "Weekly intake and bodyweight";
+  if (state.activeView === "sleep") return "Sleep, reading and daily recovery";
+  if (state.activeView === "profile") return "Profile and cloud settings";
+  return "Plan the week and log every set";
+}
+
 function renderWeekHeaderMeta(summary, nutrition, nutritionSummary, sleepSummary) {
   if (state.activeView === "nutrition") {
     return `${formatNumber(nutritionSummary.totalCalories)}/${formatNumber(nutrition.goals.weeklyCalories)} kcal`;
@@ -1505,7 +1532,21 @@ function renderWeekHeaderMeta(summary, nutrition, nutritionSummary, sleepSummary
 
 function renderCloudBadge() {
   if (cloud.session) {
-    return `<button class="cloud-badge online" data-action="set-view" data-view="profile" title="Upravit profil">${escapeHtml(profileName())}</button>`;
+    return `
+      <details class="account-menu">
+        <summary class="account-trigger">
+          <span class="account-avatar" aria-hidden="true">${escapeHtml(profileName().slice(0, 1).toUpperCase())}</span>
+          <span class="account-name">${escapeHtml(profileName())}</span>
+          <span class="account-caret" aria-hidden="true"></span>
+        </summary>
+        <div class="account-popover">
+          <div class="account-status"><span></span> Cloud synced</div>
+          <button class="account-action" data-action="set-view" data-view="profile">Account settings</button>
+          <button class="account-action" data-action="toggle-theme" aria-pressed="${state.theme === "dark"}">${state.theme === "dark" ? "Light appearance" : "Dark appearance"}</button>
+          <button class="account-action account-signout" data-action="sign-out">Sign out</button>
+        </div>
+      </details>
+    `;
   }
   if (cloud.configured) return `<span class="cloud-badge auth">Login ready</span>`;
   return `<button class="cloud-badge local" data-action="retry-cloud" title="${escapeAttr(cloud.message)}">Retry cloud</button>`;
@@ -1569,28 +1610,38 @@ function renderLoadingShell() {
 }
 
 function renderAuthShell() {
+  const isSignIn = authScreenMode === "sign-in";
   return `
     <main class="auth-shell">
       <section class="auth-panel auth-modern">
         <div class="auth-brand-stage">
-          <div class="auth-logo-card auth-logo-card-large" aria-hidden="true">
-            <img src="./assets/become-better-logo.png" alt="">
+          <div class="auth-product-lockup">
+            <div class="auth-product-mark" aria-hidden="true">
+              <img src="./icon.svg" alt="">
+            </div>
+            <div>
+              <strong>${PRODUCT_NAME}</strong>
+              <span>by David</span>
+            </div>
           </div>
-          <p class="eyebrow">${PRODUCT_EYEBROW}</p>
-          <h2>Build your performance system.</h2>
-          <p class="auth-copy">Training, nutrition, routine and progress data synced across every device. Built for clear weekly improvement with your crew.</p>
-          <div class="auth-benefits" aria-label="Product highlights">
-            <span>Cloud sync</span>
-            <span>Progress tracking</span>
-            <span>Mobile ready</span>
+          <div class="auth-hero-copy">
+            <p class="eyebrow">Performance, made personal</p>
+            <h2>Build stronger weeks.</h2>
+            <p class="auth-copy">One focused place for training, nutrition and recovery.</p>
           </div>
+          <div class="auth-proof"><span>01</span><strong>Plan</strong><span>02</span><strong>Track</strong><span>03</span><strong>Improve</strong></div>
         </div>
         <div class="auth-access">
+          <div class="auth-mode-tabs" role="tablist" aria-label="Account access">
+            <button class="auth-mode-tab${isSignIn ? " active" : ""}" type="button" data-action="set-auth-mode" data-auth-mode="sign-in">Sign in</button>
+            <button class="auth-mode-tab${!isSignIn ? " active" : ""}" type="button" data-action="set-auth-mode" data-auth-mode="sign-up">Create account</button>
+          </div>
           ${renderAuthNotice()}
+          ${isSignIn ? `
           <form class="auth-card auth-primary-card" data-auth-form="sign-in">
             <div class="auth-card-head">
               <span>Welcome back</span>
-              <h3>Sign in</h3>
+              <h3>Continue your progress</h3>
             </div>
             <label class="auth-field">
               <span>Email</span>
@@ -1603,12 +1654,12 @@ function renderAuthShell() {
             <button class="btn primary auth-main-action" type="submit">Sign in</button>
             <button class="text-btn" type="button" data-action="forgot-password">Forgot password?</button>
           </form>
+          ` : `
           <form class="auth-card auth-secondary-card" data-auth-form="sign-up">
             <div class="auth-card-head">
               <span>New account</span>
-              <h3>Create account</h3>
+              <h3>Start your system</h3>
             </div>
-            <p class="microcopy">You will get a confirmation email. Open it, confirm the account and then sign in.</p>
             <label class="auth-field">
               <span>Email</span>
               <input class="input" name="email" type="email" autocomplete="email" placeholder="you@email.com" required>
@@ -1617,8 +1668,11 @@ function renderAuthShell() {
               <span>Password</span>
               <input class="input" name="password" type="password" autocomplete="new-password" minlength="6" placeholder="At least 6 characters" required>
             </label>
-            <button class="btn auth-main-action" type="submit">Create account</button>
+            <button class="btn primary auth-main-action" type="submit">Create account</button>
+            <p class="microcopy">We will send a confirmation link to your email.</p>
           </form>
+          `}
+          <p class="auth-footer">Become Better keeps each account separated and synced through Supabase.</p>
         </div>
       </section>
     </main>
@@ -1627,12 +1681,7 @@ function renderAuthShell() {
 
 function renderAuthNotice() {
   if (!cloud.authNotice) {
-    return `
-      <div class="auth-notice">
-        <strong>Email confirmation required.</strong>
-        <span>After creating an account, open the confirmation email and then sign in.</span>
-      </div>
-    `;
+    return "";
   }
 
   return `
@@ -3243,6 +3292,15 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "set-auth-mode") {
+    const nextMode = target.dataset.authMode;
+    if (!["sign-in", "sign-up"].includes(nextMode)) return;
+    authScreenMode = nextMode;
+    cloud.authNotice = null;
+    render();
+    return;
+  }
+
   if (action === "set-view") {
     const nextView = target.dataset.view;
     if (!APP_VIEWS.includes(nextView)) return;
@@ -3864,6 +3922,7 @@ async function handleSubmit(event) {
 
       event.target.reset();
       cloud.pendingEmail = email;
+      authScreenMode = "sign-in";
       cloud.authNotice = data.session
         ? {
           type: "success",
