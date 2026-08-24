@@ -1293,7 +1293,7 @@ button.cloud-badge:hover {
 }
 
 .sleep-goal-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .sleep-day-grid {
@@ -2758,6 +2758,17 @@ button.cloud-badge:hover {
     gap: 10px;
   }
 
+  .sleep-day-card .nutrition-day-card-head,
+  .sleep-day-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sleep-day-card .input[type="time"] {
+    min-height: 48px;
+    font-size: 1rem;
+    text-align: center;
+  }
+
   .phase-settings,
   .phase-summary,
   .phase-row {
@@ -2961,7 +2972,7 @@ button.cloud-badge:hover {
   }
 
   .view-tabs {
-    grid-template-columns: repeat(6, minmax(58px, 1fr));
+    grid-template-columns: repeat(6, minmax(92px, 1fr));
     overflow-x: auto;
     scrollbar-width: none;
   }

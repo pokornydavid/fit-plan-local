@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "83";
+const APP_VERSION = "84";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
@@ -41,6 +41,7 @@ const SLEEP_DAY_FIELDS = [
   "bookPages",
   "morningWalkMinutes",
   "steps",
+  "stress",
   "sleepNotes"
 ];
 const NUTRITION_DAY_FIELDS = [...FOOD_DAY_FIELDS, ...SLEEP_DAY_FIELDS];
@@ -742,6 +743,7 @@ function createNutritionWeek(goals = DEFAULT_NUTRITION_GOALS) {
       bookPages: "",
       morningWalkMinutes: "",
       steps: "",
+      stress: "",
       weight: "",
       notes: "",
       bedTime: "",
@@ -808,6 +810,7 @@ function normalizeNutritionWeek(nutrition) {
         bookPages: normalizeOptionalNumber(day.bookPages),
         morningWalkMinutes: normalizeOptionalNumber(day.morningWalkMinutes),
         steps: normalizeOptionalNumber(day.steps),
+        stress: normalizeOptionalNumber(day.stress),
         weight: normalizeOptionalNumber(day.weight),
         notes: String(day.notes || ""),
         bedTime: normalizeClockTime(day.bedTime),
@@ -1872,22 +1875,22 @@ function renderNutritionShell(nutrition, summary) {
 }
 
 function renderSleepShell(nutrition, summary) {
-  const routineProgress = Math.round((summary.bookProgress + summary.walkProgress + summary.stepsProgress) / 3);
+  const routineProgress = Math.round((summary.bookProgress + summary.stepsProgress) / 2);
   return `
     <main class="nutrition-shell sleep-shell">
       <section class="nutrition-main">
         <div class="nutrition-head">
           <div>
             <p class="eyebrow">Routine tracker</p>
-            <h2>Sleep, reading and movement</h2>
-            <p class="auth-copy">Manual sleep log, sleep rating, book pages, morning walks and weekly steps outside nutrition.</p>
+            <h2>Sleep, reading and recovery</h2>
+            <p class="auth-copy">Manual sleep log, watch sleep score, average stress, book pages and weekly steps outside nutrition.</p>
           </div>
         </div>
         <div class="nutrition-metrics">
           <div class="metric hero-metric"><strong data-sleep-summary="averageSleep">${formatSleepMinutes(summary.averageSleepMinutes)}</strong><span>Average sleep</span></div>
-          <div class="metric"><strong data-sleep-summary="averageQuality">${summary.averageQuality ? `${formatNumber(summary.averageQuality)}/5` : "-"}</strong><span>Sleep rating</span></div>
+          <div class="metric"><strong data-sleep-summary="averageQuality">${summary.qualityLoggedDays ? `${formatNumber(summary.averageQuality)}/100` : "-"}</strong><span>Sleep score</span></div>
+          <div class="metric"><strong data-sleep-summary="averageStress">${summary.stressLoggedDays ? `${formatNumber(summary.averageStress)}/100` : "-"}</strong><span>Avg stress</span></div>
           <div class="metric"><strong data-sleep-summary="bookPages">${formatNumber(summary.totalBookPages)}/${formatNumber(nutrition.goals.bookPages)}</strong><span>Book pages</span></div>
-          <div class="metric"><strong data-sleep-summary="walkMinutes">${formatNumber(summary.totalMorningWalkMinutes)}/${formatNumber(nutrition.goals.morningWalkMinutes)}</strong><span>Morning walk min</span></div>
           <div class="metric"><strong data-sleep-summary="steps">${formatNumber(summary.totalSteps)}/${formatNumber(nutrition.goals.weeklySteps)}</strong><span>Weekly steps</span></div>
         </div>
         <div class="nutrition-grid">
@@ -1898,7 +1901,6 @@ function renderSleepShell(nutrition, summary) {
             </div>
             <div class="goal-grid sleep-goal-grid">
               ${renderSleepGoal("bookPages", "Book pages / week", nutrition.goals.bookPages, 1)}
-              ${renderSleepGoal("morningWalkMinutes", "Morning walk / week", nutrition.goals.morningWalkMinutes, 5)}
               ${renderSleepGoal("weeklySteps", "Steps / week", nutrition.goals.weeklySteps, 1000)}
             </div>
           </section>
@@ -1909,7 +1911,6 @@ function renderSleepShell(nutrition, summary) {
             </div>
             <div class="macro-bars">
               ${renderMacroBar("Book pages", "sleepBookPages", summary.totalBookPages, nutrition.goals.bookPages, "pages")}
-              ${renderMacroBar("Morning walk", "sleepMorningWalk", summary.totalMorningWalkMinutes, nutrition.goals.morningWalkMinutes, "min")}
               ${renderMacroBar("Steps", "sleepSteps", summary.totalSteps, nutrition.goals.weeklySteps, "steps")}
             </div>
           </section>
@@ -1917,7 +1918,7 @@ function renderSleepShell(nutrition, summary) {
         <section class="nutrition-card">
           <div class="section-row">
             <h3>Daily sleep log</h3>
-            <span class="microcopy">Bedtime, wake time, sleep rating, reading, morning walk and steps</span>
+            <span class="microcopy">Bedtime, wake time, sleep score, stress, reading and steps</span>
           </div>
           <div class="nutrition-day-cards">
             ${renderSleepDayPager(nutrition)}
@@ -1930,9 +1931,9 @@ function renderSleepShell(nutrition, summary) {
                   <th>Bed</th>
                   <th>Wake</th>
                   <th>Duration</th>
-                  <th>Rating</th>
+                  <th>Score</th>
+                  <th>Stress</th>
                   <th>Pages</th>
-                  <th>Walk min</th>
                   <th>Steps</th>
                 </tr>
               </thead>
@@ -1982,13 +1983,13 @@ function renderSleepDayCard(day, index) {
           <strong>${DAY_LABELS[index][1]}</strong>
           <span data-sleep-card-meta="${index}">${formatShortDate(date)} - ${formatSleepMinutes(sleepMinutesForDay(day))}</span>
         </div>
-        ${renderSleepCardInput(index, "sleepQuality", "Sleep rating 1-5", day.sleepQuality, 1, 1, 5)}
+        ${renderSleepCardInput(index, "sleepQuality", "Sleep score 0-100", day.sleepQuality, 1, 0, 100)}
       </div>
       <div class="nutrition-day-grid sleep-day-grid">
         ${renderSleepTimeInput(index, "bedTime", "Bed time", day.bedTime)}
         ${renderSleepTimeInput(index, "wakeTime", "Wake time", day.wakeTime)}
+        ${renderSleepCardInput(index, "stress", "Stress 0-100", day.stress, 1, 0, 100)}
         ${renderSleepCardInput(index, "bookPages", "Book pages", day.bookPages, 1, 0)}
-        ${renderSleepCardInput(index, "morningWalkMinutes", "Morning walk min", day.morningWalkMinutes, 5, 0)}
         ${renderSleepCardInput(index, "steps", "Steps", day.steps, 100, 0)}
       </div>
     </article>
@@ -2043,9 +2044,9 @@ function renderSleepDayRow(day, index) {
       ${renderSleepTableTimeInput(index, "bedTime", day.bedTime)}
       ${renderSleepTableTimeInput(index, "wakeTime", day.wakeTime)}
       <td><strong class="sleep-duration" data-sleep-duration-day="${index}">${formatSleepMinutes(sleepMinutesForDay(day))}</strong></td>
-      ${renderSleepInput(index, "sleepQuality", day.sleepQuality, 1, 1, 5)}
+      ${renderSleepInput(index, "sleepQuality", day.sleepQuality, 1, 0, 100)}
+      ${renderSleepInput(index, "stress", day.stress, 1, 0, 100)}
       ${renderSleepInput(index, "bookPages", day.bookPages, 1)}
-      ${renderSleepInput(index, "morningWalkMinutes", day.morningWalkMinutes, 5)}
       ${renderSleepInput(index, "steps", day.steps, 100)}
     </tr>
   `;
@@ -6283,19 +6284,18 @@ function refreshSleepSummary() {
   if (state.activeView !== "sleep") return;
   const nutrition = ensureNutritionWeek();
   const summary = summarizeSleep(nutrition);
-  const routineProgress = Math.round((summary.bookProgress + summary.walkProgress + summary.stepsProgress) / 3);
+  const routineProgress = Math.round((summary.bookProgress + summary.stepsProgress) / 2);
 
   setText("[data-sleep-summary='header']", `${formatSleepMinutes(summary.totalSleepMinutes)} sleep`);
   setText("[data-sleep-summary='averageSleep']", formatSleepMinutes(summary.averageSleepMinutes));
-  setText("[data-sleep-summary='averageQuality']", summary.averageQuality ? `${formatNumber(summary.averageQuality)}/5` : "-");
+  setText("[data-sleep-summary='averageQuality']", summary.qualityLoggedDays ? `${formatNumber(summary.averageQuality)}/100` : "-");
+  setText("[data-sleep-summary='averageStress']", summary.stressLoggedDays ? `${formatNumber(summary.averageStress)}/100` : "-");
   setText("[data-sleep-summary='bookPages']", `${formatNumber(summary.totalBookPages)}/${formatNumber(nutrition.goals.bookPages)}`);
-  setText("[data-sleep-summary='walkMinutes']", `${formatNumber(summary.totalMorningWalkMinutes)}/${formatNumber(nutrition.goals.morningWalkMinutes)}`);
   setText("[data-sleep-summary='steps']", `${formatNumber(summary.totalSteps)}/${formatNumber(nutrition.goals.weeklySteps)}`);
   setText("[data-sleep-summary='routineProgress']", `${routineProgress}%`);
   setText("[data-sleep-summary='daysLogged']", `${summary.sleepLoggedDays}/7 days`);
 
   refreshMacroSummary("sleepBookPages", summary.totalBookPages, nutrition.goals.bookPages);
-  refreshMacroSummary("sleepMorningWalk", summary.totalMorningWalkMinutes, nutrition.goals.morningWalkMinutes);
   refreshMacroSummary("sleepSteps", summary.totalSteps, nutrition.goals.weeklySteps);
   nutrition.days.forEach((day, index) => {
     const date = addDays(parseDate(state.weekStart), index);
@@ -6659,7 +6659,12 @@ function summarizeSleep(nutrition) {
   const totalSleepMinutes = days.reduce((sum, day) => sum + sleepMinutesForDay(day), 0);
   const sleepLoggedDays = days.filter((day) => sleepMinutesForDay(day) > 0).length;
   const qualities = days
+    .filter((day) => day.sleepQuality !== "" && day.sleepQuality !== null && day.sleepQuality !== undefined)
     .map((day) => toNumber(day.sleepQuality, NaN))
+    .filter(Number.isFinite);
+  const stressValues = days
+    .filter((day) => day.stress !== "" && day.stress !== null && day.stress !== undefined)
+    .map((day) => toNumber(day.stress, NaN))
     .filter(Number.isFinite);
   const totalBookPages = days.reduce((sum, day) => sum + toNumber(day.bookPages, 0), 0);
   const totalMorningWalkMinutes = days.reduce((sum, day) => sum + toNumber(day.morningWalkMinutes, 0), 0);
@@ -6678,6 +6683,11 @@ function summarizeSleep(nutrition) {
     averageQuality: qualities.length
       ? Math.round((qualities.reduce((sum, value) => sum + value, 0) / qualities.length) * 10) / 10
       : 0,
+    qualityLoggedDays: qualities.length,
+    averageStress: stressValues.length
+      ? Math.round((stressValues.reduce((sum, value) => sum + value, 0) / stressValues.length) * 10) / 10
+      : 0,
+    stressLoggedDays: stressValues.length,
     totalBookPages,
     totalMorningWalkMinutes,
     totalSteps,
