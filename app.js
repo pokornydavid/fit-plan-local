@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "87";
+const APP_VERSION = "88";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_LOCAL_UMD_URL = `./assets/supabase.min.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -1384,6 +1384,24 @@ function render() {
     state.activeView = "plan";
     saveLocal();
   }
+  const lockedForAuth = cloud.configured && !cloud.session;
+  const publicContent = !cloud.ready
+    ? renderLoadingShell()
+    : cloud.passwordRecovery
+      ? renderPasswordResetShell()
+      : lockedForAuth
+        ? renderAuthShell()
+        : "";
+
+  if (publicContent) {
+    app.innerHTML = `
+      <div class="public-app">
+        ${publicContent}
+      </div>
+    `;
+    return;
+  }
+
   const preservedDayListScroll = state.activeView === "plan"
     ? app.querySelector("[data-day-list]")?.scrollLeft || 0
     : 0;
@@ -1394,14 +1412,7 @@ function render() {
   const daySummary = summarizeDay(selected);
   const nutritionSummary = summarizeNutrition(nutrition);
   const sleepSummary = summarizeSleep(nutrition);
-  const lockedForAuth = cloud.configured && !cloud.session;
-  const content = !cloud.ready
-    ? renderLoadingShell()
-    : lockedForAuth
-    ? renderAuthShell()
-    : cloud.passwordRecovery
-      ? renderPasswordResetShell()
-    : state.activeView === "profile"
+  const content = state.activeView === "profile"
       ? renderProfileShell()
     : state.activeView === "feed"
       ? renderFeedShell()
@@ -1456,7 +1467,7 @@ function render() {
           ${cloud.session ? `<button class="btn" data-action="sign-out">Odhlasit</button>` : ""}
           ${state.activeView === "plan" && !lockedForAuth ? `
             <button class="btn" data-action="open-copy-day-dialog">Kopirovat</button>
-            <button class="btn warn" data-action="sample-week">Ukazkovy plan</button>
+            <button class="btn warn" data-action="sample-week">Demo plan</button>
           ` : ""}
         </div>
       </header>
@@ -1546,11 +1557,11 @@ function renderCopyDayDialog() {
 function renderLoadingShell() {
   return `
     <main class="auth-shell">
-      <section class="auth-panel profile-panel">
+      <section class="auth-panel profile-panel loading-panel">
         <div>
           <p class="eyebrow">${PRODUCT_EYEBROW}</p>
-          <h2>Nacitam spravny ucet</h2>
-          <p class="auth-copy">Chvilku kontroluju prihlaseni a oddeluju data podle uctu.</p>
+          <h2>Preparing your workspace</h2>
+          <p class="auth-copy">Checking your session and loading the right cloud data.</p>
         </div>
       </section>
     </main>
@@ -1567,7 +1578,7 @@ function renderAuthShell() {
           </div>
           <p class="eyebrow">${PRODUCT_EYEBROW}</p>
           <h2>Build your performance system.</h2>
-          <p class="auth-copy">Training, nutrition, routine and progress data synced across every device. Made for focused weekly improvement.</p>
+          <p class="auth-copy">Training, nutrition, routine and progress data synced across every device. Built for clear weekly improvement with your crew.</p>
           <div class="auth-benefits" aria-label="Product highlights">
             <span>Cloud sync</span>
             <span>Progress tracking</span>
@@ -1639,15 +1650,15 @@ function renderPasswordResetShell() {
       <section class="auth-panel profile-panel">
         <div>
           <p class="eyebrow">Password reset</p>
-          <h2>Nastav nove heslo</h2>
-          <p class="auth-copy">Po ulozeni se normalne vratis do appky a muzes se prihlasovat novym heslem.</p>
+          <h2>Set a new password</h2>
+          <p class="auth-copy">After saving it, you can sign in again with the new password.</p>
         </div>
         <form class="auth-card profile-card" data-reset-password-form>
           <label class="field">
-            <span>Nove heslo</span>
-            <input class="input" name="password" type="password" autocomplete="new-password" minlength="6" placeholder="Min. 6 znaku" required>
+            <span>New password</span>
+            <input class="input" name="password" type="password" autocomplete="new-password" minlength="6" placeholder="At least 6 characters" required>
           </label>
-          <button class="btn primary" type="submit">Ulozit nove heslo</button>
+          <button class="btn primary" type="submit">Save new password</button>
         </form>
       </section>
     </main>
@@ -3596,7 +3607,7 @@ async function handleClick(event) {
     state.weeks[state.weekStart] = createSampleWeek();
     saveWorkoutWeek();
     render();
-    showToast("Ukazkovy plan nahran.");
+    showToast("Demo plan loaded.");
     return;
   }
 
