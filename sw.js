@@ -1,12 +1,13 @@
-const CACHE_NAME = "fit-plan-v84";
+const CACHE_NAME = "become-better-v85";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=84",
-  "./app.js?v=84",
-  "./supabase-config.js?v=84",
+  "./styles.css?v=85",
+  "./app.js?v=85",
+  "./supabase-config.js?v=85",
   "./manifest.webmanifest",
-  "./icon.svg"
+  "./icon.svg",
+  "./assets/become-better-logo.png"
 ];
 
 self.addEventListener("install", (event) => {

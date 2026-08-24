@@ -1,11 +1,11 @@
 {
-  "name": "Fit plan by David",
-  "short_name": "Fit David",
-  "description": "Training and nutrition tracker by David.",
+  "name": "Become Better by David",
+  "short_name": "Become Better",
+  "description": "Training, nutrition and recovery tracker by David.",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#080b0f",
-  "theme_color": "#2dd4bf",
+  "theme_color": "#22c55e",
   "icons": [
     {
       "src": "icon.svg",

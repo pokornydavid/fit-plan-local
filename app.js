@@ -3,12 +3,16 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "84";
+const APP_VERSION = "85";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
-const CLOUD_INIT_TIMEOUT_MS = 15000;
+const SUPABASE_UMD_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js";
+const CLOUD_INIT_TIMEOUT_MS = 25000;
 const CLOUD_REFRESH_INTERVAL_MS = 6000;
+const PRODUCT_NAME = "Become Better";
+const PRODUCT_TAGLINE = "Performance and recovery tracker";
+const PRODUCT_EYEBROW = "Become Better by David";
 const DEFAULT_PHASE_WEEKS = 16;
 const NUTRITION_PHASE_WEEK_START = "1970-01-05";
 const PHASE_PHOTO_BUCKET = "progress-photos";
@@ -205,7 +209,7 @@ async function initSupabase() {
     cloud.client = null;
     cloud.session = null;
     cloud.status = "local";
-    cloud.message = "Cloud se nacital moc dlouho. Zkus refresh, appka zatim bezi lokalne.";
+    cloud.message = friendlyCloudInitError(error);
     console.warn(error);
   } finally {
     cloud.ready = true;
@@ -217,8 +221,40 @@ async function importSupabaseClient() {
     return await withTimeout(import(SUPABASE_MODULE_URL), CLOUD_INIT_TIMEOUT_MS, "Supabase client timeout");
   } catch (error) {
     console.warn(error);
-    return withTimeout(import(SUPABASE_FALLBACK_MODULE_URL), CLOUD_INIT_TIMEOUT_MS, "Supabase fallback client timeout");
+    try {
+      return await withTimeout(import(SUPABASE_FALLBACK_MODULE_URL), CLOUD_INIT_TIMEOUT_MS, "Supabase fallback client timeout");
+    } catch (fallbackError) {
+      console.warn(fallbackError);
+      await loadExternalScript(SUPABASE_UMD_URL);
+      if (window.supabase?.createClient) return { createClient: window.supabase.createClient };
+      throw fallbackError;
+    }
   }
+}
+
+function loadExternalScript(src) {
+  const existing = document.querySelector(`script[src="${src}"]`);
+  if (existing?.dataset.loaded === "true") return Promise.resolve();
+  if (existing?.dataset.loading === "true") {
+    return new Promise((resolve, reject) => {
+      existing.addEventListener("load", resolve, { once: true });
+      existing.addEventListener("error", reject, { once: true });
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.dataset.loading = "true";
+    script.addEventListener("load", () => {
+      script.dataset.loading = "false";
+      script.dataset.loaded = "true";
+      resolve();
+    }, { once: true });
+    script.addEventListener("error", () => reject(new Error(`Nepodarilo se nacist ${src}`)), { once: true });
+    document.head.appendChild(script);
+  });
 }
 
 function withTimeout(promise, timeoutMs, message) {
@@ -1352,10 +1388,10 @@ function render() {
     <div class="app">
       <header class="topbar">
         <div class="brand">
-          <div class="brand-mark" aria-hidden="true">FP</div>
+          <div class="brand-mark" aria-hidden="true">BB</div>
           <div class="brand-copy">
-            <h1>Fit plan <small>by David</small></h1>
-            <span class="brand-subtitle">${cloud.configured ? "Training & nutrition cloud" : "Local training tracker"}</span>
+            <h1>${PRODUCT_NAME} <small>by David</small></h1>
+            <span class="brand-subtitle">${cloud.configured ? "Performance cloud" : PRODUCT_TAGLINE}</span>
           </div>
         </div>
         <div class="center-stack">
@@ -1427,7 +1463,7 @@ function renderCloudBadge() {
     return `<button class="cloud-badge online" data-action="set-view" data-view="profile" title="Upravit profil">${escapeHtml(profileName())}</button>`;
   }
   if (cloud.configured) return `<span class="cloud-badge auth">Login ready</span>`;
-  return `<button class="cloud-badge local" data-action="retry-cloud" title="Zkusit znovu nacist cloud">Local</button>`;
+  return `<button class="cloud-badge local" data-action="retry-cloud" title="${escapeAttr(cloud.message)}">Retry cloud</button>`;
 }
 
 function renderCopyDayDialog() {
@@ -1478,7 +1514,7 @@ function renderLoadingShell() {
     <main class="auth-shell">
       <section class="auth-panel profile-panel">
         <div>
-          <p class="eyebrow">Fit plan by David</p>
+          <p class="eyebrow">${PRODUCT_EYEBROW}</p>
           <h2>Nacitam spravny ucet</h2>
           <p class="auth-copy">Chvilku kontroluju prihlaseni a oddeluju data podle uctu.</p>
         </div>
@@ -1491,10 +1527,15 @@ function renderAuthShell() {
   return `
     <main class="auth-shell">
       <section class="auth-panel">
-        <div>
-          <p class="eyebrow">Fit plan by David</p>
-          <h2>Train, eat and track progress in one place</h2>
-          <p class="auth-copy">Sync workouts, calories, macros and bodyweight across devices. Share public sessions, post updates and track weekly progress with your crew.</p>
+        <div class="auth-hero">
+          <div>
+            <p class="eyebrow">${PRODUCT_EYEBROW}</p>
+            <h2>Build your training, nutrition and recovery system.</h2>
+            <p class="auth-copy">Sync workouts, macros, sleep, routine data and progress photos across devices. Built for consistent weekly improvement with your crew.</p>
+          </div>
+          <div class="auth-logo-card" aria-hidden="true">
+            <img src="./assets/become-better-logo.png" alt="">
+          </div>
         </div>
         ${renderAuthNotice()}
         <div class="auth-grid">
@@ -1563,7 +1604,7 @@ function renderProfileShell() {
     <main class="auth-shell">
       <section class="auth-panel profile-panel">
         <div>
-          <p class="eyebrow">Account</p>
+          <p class="eyebrow">${PRODUCT_NAME}</p>
           <h2>Profil a prezdivka</h2>
           <p class="auth-copy">Tohle jmeno se ukazuje nahore v appce, ve feedu, postech a progressu.</p>
         </div>
@@ -3132,7 +3173,7 @@ async function handleClick(event) {
       saveLocal();
     }
     render();
-    showToast(cloud.configured ? "Cloud nacteny." : "Cloud se nepodarilo nacist.");
+    showToast(cloud.configured ? "Cloud nacteny." : cloud.message);
     return;
   }
 
@@ -6803,6 +6844,20 @@ function friendlyAuthError(error) {
     return "Heslo musi mit aspon 6 znaku.";
   }
   return error?.message || "Akce se nepovedla. Zkus to prosim znovu.";
+}
+
+function friendlyCloudInitError(error) {
+  const message = String(error?.message || error || "").trim();
+  const lowerMessage = message.toLowerCase();
+  if (lowerMessage.includes("timeout") || lowerMessage.includes("vyprselo")) {
+    return "Cloud se nacital moc dlouho. Klikni na Retry cloud, nebo obnov stranku.";
+  }
+  if (lowerMessage.includes("failed to fetch") || lowerMessage.includes("load") || lowerMessage.includes("network")) {
+    return "Cloud knihovna se nepodarila nacist. Zkontroluj pripojeni a klikni na Retry cloud.";
+  }
+  return message
+    ? `Cloud se nepodarilo nacist: ${message}`
+    : "Cloud se nepodarilo nacist. Zkus refresh nebo klikni na Retry cloud.";
 }
 
 function authRedirectUrl() {

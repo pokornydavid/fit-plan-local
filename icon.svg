@@ -1,5 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#080b0f"/>
-  <path d="M120 314h54V198h-54v116Zm218 0h54V198h-54v116ZM201 352h110V160H201v192Zm-46-77h-45v-38h45v38Zm247 0h-45v-38h45v38Z" fill="#2dd4bf"/>
-  <path d="M201 160h110v52H201v-52Zm0 140h110v52H201v-52Z" fill="#eef5f4"/>
+  <defs>
+    <linearGradient id="bg" x1="96" y1="72" x2="416" y2="440" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#121821"/>
+      <stop offset="1" stop-color="#080B0F"/>
+    </linearGradient>
+    <linearGradient id="green" x1="126" y1="128" x2="395" y2="384" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A3E635"/>
+      <stop offset="0.58" stop-color="#22C55E"/>
+      <stop offset="1" stop-color="#16A34A"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="16" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.13 0 0 0 0 0.77 0 0 0 0 0.37 0 0 0 0.75 0"/>
+      <feBlend in2="SourceGraphic" mode="screen"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="104" fill="url(#bg)"/>
+  <path d="M314 82 176 286h94l-72 144 154-208h-94l56-140Z" fill="url(#green)" filter="url(#glow)"/>
+  <path d="M116 156h124c50 0 78 25 78 65 0 25-13 44-36 55 30 10 48 31 48 67 0 48-36 77-94 77H116V156Zm92 104c28 0 43-11 43-32s-15-31-43-31h-39v63h39Zm8 119c34 0 52-13 52-39 0-25-18-38-52-38h-47v77h47Z" fill="#F8FAFC"/>
+  <path d="M285 156h73c50 0 78 25 78 65 0 25-13 44-36 55 30 10 48 31 48 67 0 48-36 77-94 77h-69v-55h61c30 0 46-12 46-35 0-22-16-34-46-34h-61v-53h53c27 0 42-10 42-31s-15-31-42-31h-53v-21Z" fill="#22C55E"/>
 </svg>
