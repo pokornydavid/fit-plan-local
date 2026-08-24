@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "90";
+const APP_VERSION = "91";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_LOCAL_UMD_URL = `./assets/supabase.min.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -104,6 +104,7 @@ let copyDayDialogOpen = false;
 let postComposerImageFile = null;
 let postComposerPreviewUrl = "";
 let editingPostId = "";
+let libraryManagerOpen = false;
 let phaseCompare = {
   fromRowId: "",
   toRowId: "",
@@ -1579,7 +1580,7 @@ function renderCopyDayDialog() {
             <h2>Kopirovat trening</h2>
             <p class="auth-copy">Vyber zdrojovy den a datum, kam se ma trening zkopirovat. Prepisuje se jen cilovy den.</p>
           </div>
-          <button class="icon-btn" type="button" data-action="close-copy-day-dialog" title="Zavrit" aria-label="Zavrit">x</button>
+          <button class="icon-btn" type="button" data-action="close-copy-day-dialog" title="Zavřít" aria-label="Zavřít">×</button>
         </div>
         <div class="copy-dialog-summary">
           <strong>${escapeHtml(sourceDay.title || "Vybrany den")}</strong>
@@ -1902,7 +1903,7 @@ function renderPostPreviewMarkup() {
   return `
     <div class="post-preview-head">
       <strong>Vybrana fotka</strong>
-      <button class="icon-btn danger" type="button" data-action="clear-post-image" title="Odebrat fotku" aria-label="Odebrat fotku">x</button>
+      <button class="icon-btn danger" type="button" data-action="clear-post-image" title="Odebrat fotku" aria-label="Odebrat fotku">×</button>
     </div>
     <img src="${escapeAttr(postComposerPreviewUrl)}" alt="${escapeAttr(postComposerImageFile?.name || "Nahled fotky")}">
   `;
@@ -1926,7 +1927,7 @@ function renderPostCard(post) {
         ${isOwn ? `
           <div class="post-actions">
             ${isEditing ? "" : `<button class="btn subtle" type="button" data-action="edit-community-post" data-post-id="${escapeAttr(post.id)}">Upravit</button>`}
-            <button class="icon-btn danger" data-action="delete-community-post" data-post-id="${escapeAttr(post.id)}" title="Smazat post" aria-label="Smazat post">x</button>
+            <button class="icon-btn danger" data-action="delete-community-post" data-post-id="${escapeAttr(post.id)}" title="Smazat post" aria-label="Smazat post">×</button>
           </div>
         ` : ""}
       </div>
@@ -1997,8 +1998,8 @@ function renderNutritionShell(nutrition, summary) {
             <p class="auth-copy">Plan calories, macros and bodyweight in the same place as training. Built for cutting, bulking and clean weekly check-ins.</p>
           </div>
           <div class="nutrition-actions">
-            <button class="btn" data-action="copy-nutrition-prev-week">Copy last week</button>
-            <button class="btn danger" data-action="reset-nutrition-data">Vycistit nutrition</button>
+            <button class="btn compact subtle" data-action="copy-nutrition-prev-week">Copy last week</button>
+            <button class="btn compact danger-quiet" data-action="reset-nutrition-data">Vyčistit týden</button>
           </div>
         </div>
         <div class="nutrition-metrics">
@@ -2488,7 +2489,7 @@ function renderPhaseCompareViewer() {
             <strong>Velky compare formy</strong>
             <span>${escapeHtml(compareRowLabel(selection.fromRow))} vs ${escapeHtml(compareRowLabel(selection.toRow))}</span>
           </div>
-          <button class="icon-btn" data-action="close-phase-compare-viewer" title="Zavrit" aria-label="Zavrit">x</button>
+          <button class="icon-btn" data-action="close-phase-compare-viewer" title="Zavřít" aria-label="Zavřít">×</button>
         </div>
         <div class="compare-viewer-toolbar">
           <div class="compare-viewer-slot-nav">
@@ -2577,7 +2578,7 @@ function renderNutritionPhaseRow(row) {
           <span>Poznamka</span>
           <input class="input" data-field="nutrition-phase-row" data-row-id="${row.id}" data-phase-row="note" value="${escapeAttr(row.note)}" placeholder="Poznamka">
         </label>
-        <button class="icon-btn danger" data-action="remove-phase-row" data-row-id="${row.id}" title="Smazat tyden" aria-label="Smazat tyden">x</button>
+        <button class="icon-btn danger" data-action="remove-phase-row" data-row-id="${row.id}" title="Smazat týden" aria-label="Smazat týden">×</button>
       </div>
       <details class="phase-photo-panel" data-row-id="${row.id}" ${isPhotoPanelOpen ? "open" : ""}>
         <summary>
@@ -2618,7 +2619,7 @@ function renderPhasePhoto(rowId, photo, index, total) {
       </button>
       <figcaption>
         <span>${escapeHtml(formatPhotoDate(photo.addedAt))}</span>
-        <button class="icon-btn danger" type="button" data-action="remove-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" title="Smazat fotku" aria-label="Smazat fotku">x</button>
+        <button class="icon-btn danger" type="button" data-action="remove-phase-photo" data-row-id="${rowId}" data-photo-id="${photo.id}" title="Smazat fotku" aria-label="Smazat fotku">×</button>
       </figcaption>
     </figure>
   `;
@@ -2645,7 +2646,7 @@ function renderPhasePhotoViewer() {
             <strong>${escapeHtml(row.weekLabel || "Tyden")}</strong>
             <span>${index + 1}/${photos.length} - ${escapeHtml(formatPhotoDate(photo.addedAt))}</span>
           </div>
-          <button class="icon-btn" data-action="close-phase-photo" title="Zavrit" aria-label="Zavrit">x</button>
+          <button class="icon-btn" data-action="close-phase-photo" title="Zavřít" aria-label="Zavřít">×</button>
         </div>
         <div class="photo-viewer-stage">
           <button class="icon-btn photo-nav" data-action="prev-phase-photo" title="Predchozi fotka" aria-label="Predchozi fotka" ${photos.length <= 1 ? "disabled" : ""}>&lt;</button>
@@ -3062,19 +3063,44 @@ function renderDayWorkspace(day, summary) {
               ${renderVisibilityOptions(day.visibility || "public")}
             </select>
           </label>
-          <button class="btn danger" data-action="clear-day">Vycistit den</button>
+          <button class="btn compact danger-quiet" data-action="clear-day">Vyčistit</button>
         </div>
         ${renderMobileDaySummary(day, summary)}
-        <div class="add-strip">
-          <select id="quickAdd" class="select" aria-label="Cvik z knihovny">
-            ${state.library.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} / ${escapeHtml(item.muscle)}</option>`).join("")}
-          </select>
-          <button class="icon-btn primary" data-action="add-library-exercise" title="Pridat z knihovny" aria-label="Pridat z knihovny">+</button>
-          <input id="customExerciseName" class="input" placeholder="Vlastni cvik">
-          <select id="customExerciseMuscle" class="select" aria-label="Partie vlastniho cviku">
-            ${renderMuscleOptions("Full body")}
-          </select>
-          <button class="btn primary" data-action="add-custom-exercise">Pridat</button>
+        <div class="add-strip exercise-composer">
+          <div class="composer-title">
+            <span>Přidat cvik</span>
+          </div>
+          <div class="composer-grid">
+            <section class="composer-option">
+              <div class="composer-option-head">
+                <strong>Z knihovny</strong>
+                <span>${state.library.length} ${state.library.length === 1 ? "cvik" : "cviků"}</span>
+              </div>
+              <div class="composer-row composer-library-row">
+                <select id="quickAdd" class="select" aria-label="Cvik z knihovny" ${state.library.length ? "" : "disabled"}>
+                  ${state.library.length
+                    ? state.library.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} / ${escapeHtml(item.muscle)}</option>`).join("")
+                    : `<option value="">Knihovna je prázdná</option>`}
+                </select>
+                ${state.library.length
+                  ? `<button class="btn compact primary" data-action="add-library-exercise">Přidat</button>`
+                  : `<button class="btn compact subtle" data-action="restore-default-library">Načíst základ</button>`}
+              </div>
+            </section>
+            <section class="composer-option">
+              <div class="composer-option-head">
+                <strong>Vlastní cvik</strong>
+                <span>Jednorázově</span>
+              </div>
+              <div class="composer-row composer-custom-row">
+                <input id="customExerciseName" class="input" placeholder="Název cviku" aria-label="Název vlastního cviku">
+                <select id="customExerciseMuscle" class="select" aria-label="Partie vlastního cviku">
+                  ${renderMuscleOptions("Full body")}
+                </select>
+                <button class="btn compact primary" data-action="add-custom-exercise">Přidat</button>
+              </div>
+            </section>
+          </div>
         </div>
         <div class="exercise-list" data-exercise-list>
           ${day.exercises.length ? day.exercises.map((exercise, index) => renderExercise(exercise, index, day.exercises.length)).join("") : renderEmptyDay(summary)}
@@ -3107,10 +3133,11 @@ function renderMobileDaySummary(day, summary) {
 
 function renderEmptyDay() {
   return `
-    <div class="empty">
+    <div class="empty plan-empty-state">
       <div>
-        <strong>Zatim prazdno</strong>
-        <div class="microcopy">Vyber cvik z knihovny nebo pridej vlastni.</div>
+        <span class="empty-kicker">Nový trénink</span>
+        <strong>Zatím bez cviků</strong>
+        <div class="microcopy">Začni v panelu Přidat cvik.</div>
       </div>
     </div>
   `;
@@ -3127,8 +3154,8 @@ function renderExercise(exercise, index, totalExercises) {
             <strong>${index + 1}</strong>
           </button>
           <div class="move-controls" aria-label="Posun cviku">
-            <button class="icon-btn mini-move" data-action="move-exercise-up" data-exercise-id="${exercise.id}" title="Posunout nahoru" aria-label="Posunout cvik nahoru" ${index === 0 ? "disabled" : ""}>^</button>
-            <button class="icon-btn mini-move" data-action="move-exercise-down" data-exercise-id="${exercise.id}" title="Posunout dolu" aria-label="Posunout cvik dolu" ${index >= totalExercises - 1 ? "disabled" : ""}>v</button>
+            <button class="icon-btn mini-move" data-action="move-exercise-up" data-exercise-id="${exercise.id}" title="Posunout nahoru" aria-label="Posunout cvik nahoru" ${index === 0 ? "disabled" : ""}>↑</button>
+            <button class="icon-btn mini-move" data-action="move-exercise-down" data-exercise-id="${exercise.id}" title="Posunout dolů" aria-label="Posunout cvik dolů" ${index >= totalExercises - 1 ? "disabled" : ""}>↓</button>
           </div>
         </div>
         <label class="field">
@@ -3141,7 +3168,7 @@ function renderExercise(exercise, index, totalExercises) {
             ${renderMuscleOptions(exercise.muscle)}
           </select>
         </label>
-        <button class="icon-btn danger" data-action="remove-exercise" data-exercise-id="${exercise.id}" title="Smazat cvik" aria-label="Smazat cvik">x</button>
+        <button class="icon-btn danger" data-action="remove-exercise" data-exercise-id="${exercise.id}" title="Smazat cvik" aria-label="Smazat cvik">×</button>
       </div>
       <div class="set-table-wrap">
         <table class="set-table">
@@ -3180,7 +3207,7 @@ function renderSetRow(exercise, set, index) {
       <td><input class="input" type="number" min="0" step="${labels.repsStep}" data-field="set-reps" data-exercise-id="${exerciseId}" data-set-id="${set.id}" value="${escapeAttr(set.reps)}" aria-label="${escapeAttr(labels.reps)}"></td>
       <td><input class="input" type="number" min="0" step="${labels.weightStep}" data-field="set-weight" data-exercise-id="${exerciseId}" data-set-id="${set.id}" value="${escapeAttr(set.weight)}" aria-label="${escapeAttr(labels.weight)}"></td>
       <td><input class="input" type="number" min="${labels.rpeMin}" max="${labels.rpeMax}" step="${labels.rpeStep}" data-field="set-rpe" data-exercise-id="${exerciseId}" data-set-id="${set.id}" value="${escapeAttr(set.rpe)}" aria-label="${escapeAttr(labels.rpe)}"></td>
-      <td><button class="icon-btn" data-action="remove-set" data-exercise-id="${exerciseId}" data-set-id="${set.id}" title="Smazat serii" aria-label="Smazat serii">x</button></td>
+      <td><button class="icon-btn" data-action="remove-set" data-exercise-id="${exerciseId}" data-set-id="${set.id}" title="Smazat sérii" aria-label="Smazat sérii">×</button></td>
     </tr>
   `;
 }
@@ -3202,34 +3229,49 @@ function renderSidePanel(summary, daySummary, day) {
         ${renderMuscleBreakdown(summarizeDayMuscles(day))}
       </div>
       <div class="side-section">
-        <h2 class="section-title">Sablony</h2>
+        <h2 class="section-title">Rychlé šablony</h2>
         <div class="template-grid">
           <button class="btn" data-action="template-ppl">PPL</button>
           <button class="btn" data-action="template-fullbody">Full body</button>
         </div>
       </div>
-      <div class="side-section">
-        <div class="section-row">
-          <h2 class="section-title">Knihovna</h2>
-          <button class="btn compact" data-action="restore-default-library">Obnovit zaklad</button>
-        </div>
-        <div class="mini-form">
-          <input id="libraryName" class="input" placeholder="Cvik">
-          <select id="libraryMuscle" class="select" aria-label="Partie cviku">
-            ${renderMuscleOptions("Full body")}
-          </select>
-          <button class="icon-btn primary" data-action="add-library-item" title="Pridat do knihovny" aria-label="Pridat do knihovny">+</button>
-        </div>
-        <div>
-          ${state.library.length ? state.library.map(renderLibraryRow).join("") : renderEmptyLibrary()}
-        </div>
+      <div class="side-section side-disclosure-section">
+        <details class="side-disclosure library-manager" data-library-manager ${libraryManagerOpen ? "open" : ""}>
+          <summary>
+            <span>
+              <strong>Knihovna cviků</strong>
+              <small>Volitelná</small>
+            </span>
+            <span class="pill">${state.library.length}</span>
+          </summary>
+          <div class="side-disclosure-body">
+            <div class="section-row library-actions-row">
+              <span class="microcopy">Správa rychlého výběru</span>
+              <button class="btn compact subtle" data-action="restore-default-library">Obnovit základ</button>
+            </div>
+            <div class="mini-form">
+              <input id="libraryName" class="input" placeholder="Název cviku">
+              <select id="libraryMuscle" class="select" aria-label="Partie cviku">
+                ${renderMuscleOptions("Full body")}
+              </select>
+              <button class="icon-btn primary" data-action="add-library-item" title="Přidat do knihovny" aria-label="Přidat do knihovny">+</button>
+            </div>
+            <div>
+              ${state.library.length ? state.library.map(renderLibraryRow).join("") : renderEmptyLibrary()}
+            </div>
+          </div>
+        </details>
       </div>
-      <div class="side-section">
-        <h2 class="section-title">Data</h2>
-        <div class="data-actions">
-          <button class="btn" data-action="export-data">Export</button>
-          <button class="btn" data-action="import-data">Import</button>
-        </div>
+      <div class="side-section side-disclosure-section">
+        <details class="side-disclosure">
+          <summary><strong>Data a záloha</strong></summary>
+          <div class="side-disclosure-body">
+            <div class="data-actions">
+              <button class="btn compact" data-action="export-data">Export</button>
+              <button class="btn compact" data-action="import-data">Import</button>
+            </div>
+          </div>
+        </details>
       </div>
     </aside>
   `;
@@ -3280,7 +3322,7 @@ function renderLibraryRow(item) {
         <span>${escapeHtml(item.muscle)}</span>
       </div>
       <button class="icon-btn" data-action="quick-add-library" data-library-id="${item.id}" title="Pridat do dne" aria-label="Pridat do dne">+</button>
-      <button class="icon-btn" data-action="remove-library-item" data-library-id="${item.id}" title="Smazat z knihovny" aria-label="Smazat z knihovny">x</button>
+      <button class="icon-btn" data-action="remove-library-item" data-library-id="${item.id}" title="Smazat z knihovny" aria-label="Smazat z knihovny">×</button>
     </div>
   `;
 }
@@ -3311,6 +3353,11 @@ function renderVisibilityOptions(selected) {
 }
 
 function handleToggle(event) {
+  const libraryManager = event.target.closest?.("[data-library-manager]");
+  if (libraryManager) {
+    libraryManagerOpen = libraryManager.open;
+    return;
+  }
   const panel = event.target.closest?.(".phase-photo-panel");
   if (!panel) return;
   const rowId = panel.dataset.rowId;

@@ -5011,3 +5011,303 @@ summary:focus-visible {
     border-radius: 16px;
   }
 }
+
+/* Compact actions and clearer Plan composer v91 */
+.btn {
+  min-height: 36px;
+  padding-inline: 11px;
+  font-size: 0.86rem;
+}
+
+.icon-btn {
+  width: 36px;
+  min-height: 36px;
+  font-size: 0.9rem;
+}
+
+.btn.compact {
+  min-height: 30px;
+  padding-inline: 9px;
+  font-size: 0.76rem;
+}
+
+.auth-main-action {
+  min-height: 46px;
+  font-size: 0.92rem;
+}
+
+.icon-btn.danger {
+  color: #ff9a9a;
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.icon-btn.danger:hover {
+  color: #fff;
+  border-color: rgba(239, 68, 68, 0.58);
+  background: rgba(239, 68, 68, 0.18);
+}
+
+.btn.danger-quiet {
+  color: #f0a2a2;
+  border-color: rgba(239, 68, 68, 0.28);
+  background: transparent;
+}
+
+.btn.danger-quiet:hover {
+  color: #fff;
+  border-color: rgba(239, 68, 68, 0.52);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.day-head {
+  align-items: end;
+}
+
+.day-head .danger-quiet {
+  align-self: end;
+  margin-bottom: 3px;
+}
+
+.exercise-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 14px;
+  background: var(--surface-2);
+}
+
+.composer-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.composer-title > span {
+  color: var(--ink);
+  font-size: 0.76rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.composer-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.88fr) minmax(360px, 1.42fr);
+  gap: 10px;
+}
+
+.composer-option {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-3);
+}
+
+.composer-option-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.composer-option-head strong {
+  font-size: 0.78rem;
+}
+
+.composer-option-head span {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.composer-row {
+  min-width: 0;
+  display: grid;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer-library-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.composer-custom-row {
+  grid-template-columns: minmax(130px, 1fr) minmax(120px, 0.72fr) auto;
+}
+
+.composer-row .input,
+.composer-row .select {
+  min-height: 38px;
+}
+
+.composer-row .btn {
+  min-height: 34px;
+  align-self: center;
+}
+
+.composer-row .btn:disabled,
+.composer-row .select:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.plan-empty-state {
+  min-height: 176px;
+}
+
+.plan-empty-state > div {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+
+.empty-kicker {
+  color: var(--teal);
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.side-disclosure-section {
+  display: block;
+  padding: 0;
+}
+
+.side-disclosure {
+  width: 100%;
+}
+
+.side-disclosure > summary {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.side-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.side-disclosure > summary::after {
+  content: "+";
+  color: var(--muted);
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.side-disclosure[open] > summary::after {
+  content: "−";
+}
+
+.side-disclosure > summary > span:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.side-disclosure > summary strong {
+  font-size: 0.88rem;
+}
+
+.side-disclosure > summary small {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.side-disclosure[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.side-disclosure-body {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px 14px;
+}
+
+.library-actions-row {
+  align-items: center;
+}
+
+.library-row .icon-btn {
+  width: 32px;
+  min-height: 32px;
+}
+
+.exercise-head > .icon-btn.danger,
+.set-table .icon-btn {
+  width: 34px;
+  min-height: 34px;
+}
+
+.exercise-foot .btn,
+.template-grid .btn,
+.data-actions .btn {
+  min-height: 34px;
+}
+
+@media (max-width: 1040px) {
+  .composer-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 820px) {
+  .btn,
+  .icon-btn {
+    min-height: 38px;
+  }
+
+  .app[data-active-view="plan"] .exercise-composer {
+    grid-template-columns: minmax(0, 1fr) !important;
+    padding: 10px;
+  }
+
+  .app[data-active-view="plan"] .composer-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app[data-active-view="plan"] .composer-library-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .app[data-active-view="plan"] .composer-custom-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .app[data-active-view="plan"] .composer-custom-row #customExerciseName {
+    grid-column: 1 / -1 !important;
+  }
+
+  .app[data-active-view="plan"] .composer-custom-row #customExerciseMuscle {
+    grid-column: 1 !important;
+  }
+
+  .app[data-active-view="plan"] .composer-custom-row [data-action="add-custom-exercise"] {
+    grid-column: 2 !important;
+  }
+
+  .app[data-active-view="plan"] .day-head .danger-quiet {
+    width: auto;
+    justify-self: start;
+  }
+}
+
+@media (max-width: 520px) {
+  .composer-option {
+    padding: 9px;
+  }
+
+  .composer-row .btn {
+    padding-inline: 10px;
+  }
+
+  .side-disclosure > summary {
+    min-height: 50px;
+  }
+}
