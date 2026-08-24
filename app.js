@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "92";
+const APP_VERSION = "93";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_LOCAL_UMD_URL = `./assets/supabase.min.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -1425,10 +1425,11 @@ function render() {
   const nutritionSummary = summarizeNutrition(nutrition);
   const sleepSummary = summarizeSleep(nutrition);
   const dashboardSummary = summarizeDailyDashboard(selected, nutrition.days[state.selectedDay], nutrition.goals);
+  const weeklyDashboardSummary = summarizeWeeklyDashboard(week, nutrition);
   const content = state.activeView === "profile"
       ? renderProfileShell()
     : state.activeView === "dashboard"
-      ? renderDashboardShell(selected, nutrition.days[state.selectedDay], dashboardSummary)
+      ? renderDashboardShell(dashboardSummary, weeklyDashboardSummary)
     : state.activeView === "feed"
       ? renderFeedShell()
       : state.activeView === "posts"
@@ -1534,7 +1535,7 @@ function renderActiveViewTitle() {
 }
 
 function renderActiveViewSubtitle() {
-  if (state.activeView === "dashboard") return "Daily consistency at a glance";
+  if (state.activeView === "dashboard") return "Daily focus and weekly progress";
   if (state.activeView === "nutrition") return "Weekly intake and bodyweight";
   if (state.activeView === "sleep") return "Sleep, reading and daily recovery";
   if (state.activeView === "profile") return "Profile and cloud settings";
@@ -2002,7 +2003,7 @@ function renderLeaderboardShell() {
   `;
 }
 
-function renderDashboardShell(day, nutritionDay, summary) {
+function renderDashboardShell(summary, weeklySummary) {
   const selectedDate = addDays(parseDate(state.weekStart), state.selectedDay);
   const dayLabel = DAY_LABELS[state.selectedDay][1];
   const workoutLabel = summary.workout.totalSets
@@ -2049,7 +2050,35 @@ function renderDashboardShell(day, nutritionDay, summary) {
         ${renderDashboardSection("Nutrition", "Daily intake", "nutrition", summary.nutritionItems)}
         ${renderDashboardSection("Recovery & routine", "Sleep and habits", "sleep", summary.recoveryItems)}
       </section>
+      ${renderWeeklyDashboard(weeklySummary)}
     </main>
+  `;
+}
+
+function renderWeeklyDashboard(summary) {
+  return `
+    <section class="dashboard-weekly" aria-label="Weekly overview">
+      <header class="dashboard-weekly-head">
+        <div>
+          <span class="eyebrow">WEEKLY OVERVIEW</span>
+          <h2>${escapeHtml(weekRangeLabel(state.weekStart))}</h2>
+          <p>Flexible daily effort, measured against the targets that matter across the full week.</p>
+        </div>
+        <div class="dashboard-weekly-score">
+          <span>Weekly progress</span>
+          <strong>${summary.score}%</strong>
+          <small>${summary.completedCount}/${summary.targetCount} targets reached</small>
+        </div>
+      </header>
+      <div class="dashboard-score-track" role="progressbar" aria-label="Weekly progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${summary.score}">
+        <span style="--value:${summary.score}%"></span>
+      </div>
+      <div class="dashboard-weekly-grid">
+        ${renderDashboardSection("Training week", "Execution", "plan", summary.trainingItems)}
+        ${renderDashboardSection("Nutrition week", "Weekly intake", "nutrition", summary.nutritionItems)}
+        ${renderDashboardSection("Routine week", "Recovery & habits", "sleep", summary.recoveryItems)}
+      </div>
+    </section>
   `;
 }
 
@@ -2205,6 +2234,10 @@ function renderSleepShell(nutrition, summary) {
             <p class="auth-copy">Manual sleep log, watch sleep score, average stress, book pages and weekly steps outside nutrition.</p>
           </div>
         </div>
+        <div class="sleep-day-rule">
+          <strong>Log sleep on the day you wake up</strong>
+          <span>Monday means the night from Sunday to Monday. This keeps sleep next to the day it affects.</span>
+        </div>
         <div class="nutrition-metrics">
           <div class="metric hero-metric"><strong data-sleep-summary="averageSleep">${formatSleepMinutes(summary.averageSleepMinutes)}</strong><span>Average sleep</span></div>
           <div class="metric"><strong data-sleep-summary="averageQuality">${summary.qualityLoggedDays ? `${formatNumber(summary.averageQuality)}/100` : "-"}</strong><span>Sleep score</span></div>
@@ -2236,8 +2269,8 @@ function renderSleepShell(nutrition, summary) {
         </div>
         <section class="nutrition-card">
           <div class="section-row">
-            <h3>Daily sleep log</h3>
-            <span class="microcopy">Bedtime, wake time, sleep score, stress, reading and steps</span>
+            <h3>Sleep log by wake-up day</h3>
+            <span class="microcopy">Previous evening bedtime, morning wake time, score, stress, reading and steps</span>
           </div>
           <div class="nutrition-day-cards">
             ${renderSleepDayPager(nutrition)}
@@ -2246,7 +2279,7 @@ function renderSleepShell(nutrition, summary) {
             <table class="nutrition-table sleep-table">
               <thead>
                 <tr>
-                  <th>Day</th>
+                  <th>Wake day</th>
                   <th>Bed</th>
                   <th>Wake</th>
                   <th>Duration</th>
@@ -2300,13 +2333,13 @@ function renderSleepDayCard(day, index) {
       <div class="nutrition-day-card-head">
         <div class="nutrition-day-title">
           <strong>${DAY_LABELS[index][1]}</strong>
-          <span data-sleep-card-meta="${index}">${formatShortDate(date)} - ${formatSleepMinutes(sleepMinutesForDay(day))}</span>
+          <span data-sleep-card-meta="${index}">Night ending ${formatShortDate(date)} - ${formatSleepMinutes(sleepMinutesForDay(day))}</span>
         </div>
         ${renderSleepCardInput(index, "sleepQuality", "Sleep score 0-100", day.sleepQuality, 1, 0, 100)}
       </div>
       <div class="nutrition-day-grid sleep-day-grid">
-        ${renderSleepTimeInput(index, "bedTime", "Bed time", day.bedTime)}
-        ${renderSleepTimeInput(index, "wakeTime", "Wake time", day.wakeTime)}
+        ${renderSleepTimeInput(index, "bedTime", "Bed time (previous evening)", day.bedTime)}
+        ${renderSleepTimeInput(index, "wakeTime", "Wake time (this morning)", day.wakeTime)}
         ${renderSleepCardInput(index, "stress", "Stress 0-100", day.stress, 1, 0, 100)}
         ${renderSleepCardInput(index, "bookPages", "Book pages", day.bookPages, 1, 0)}
         ${renderSleepCardInput(index, "steps", "Steps", day.steps, 100, 0)}
@@ -6726,7 +6759,7 @@ function refreshSleepSummary() {
   refreshMacroSummary("sleepSteps", summary.totalSteps, nutrition.goals.weeklySteps);
   nutrition.days.forEach((day, index) => {
     const date = addDays(parseDate(state.weekStart), index);
-    setText(`[data-sleep-card-meta="${index}"]`, `${formatShortDate(date)} - ${formatSleepMinutes(sleepMinutesForDay(day))}`);
+    setText(`[data-sleep-card-meta="${index}"]`, `Night ending ${formatShortDate(date)} - ${formatSleepMinutes(sleepMinutesForDay(day))}`);
     setText(`[data-sleep-duration-day="${index}"]`, formatSleepMinutes(sleepMinutesForDay(day)));
   });
 }
@@ -7098,7 +7131,13 @@ function summarizeDailyDashboard(day, nutritionDay = {}, goals = DEFAULT_NUTRITI
       meta: `Target ${sleepScoreTarget}/100`,
       progress: progressToward(sleepQuality, sleepScoreTarget)
     },
-    dashboardTargetItem("Reading", bookPages, bookTarget, "pages"),
+    {
+      label: "Reading today",
+      value: `${formatNumber(bookPages)} pages`,
+      meta: `Weekly goal ${formatNumber(goals?.bookPages)} pages - tracked below`,
+      progress: 0,
+      neutral: true
+    },
     dashboardTargetItem("Steps", steps, stepsTarget, "steps"),
     {
       label: "Average stress",
@@ -7164,11 +7203,95 @@ function summarizeDailyDashboard(day, nutritionDay = {}, goals = DEFAULT_NUTRITI
   };
 }
 
-function dashboardTargetItem(label, value, target, unit) {
+function summarizeWeeklyDashboard(week, nutrition) {
+  const workout = summarizeWeek(week);
+  const intake = summarizeNutrition(nutrition);
+  const routine = summarizeSleep(nutrition);
+  const goals = nutrition.goals || DEFAULT_NUTRITION_GOALS;
+  const weeklyCalories = Math.max(0, toNumber(goals.weeklyCalories, 0));
+  const weeklyProtein = Math.max(0, toNumber(goals.protein, 0) * 7);
+  const weeklyCarbs = Math.max(0, toNumber(goals.carbs, 0) * 7);
+  const weeklyFat = Math.max(0, toNumber(goals.fat, 0) * 7);
+  const weeklyBookPages = Math.max(0, toNumber(goals.bookPages, 0));
+  const weeklySteps = Math.max(0, toNumber(goals.weeklySteps, 0));
+  const trainingProgress = workout.totalSets
+    ? progressToward(workout.completed, workout.totalSets)
+    : 0;
+
+  const trainingItems = [
+    {
+      label: "Sets completed",
+      value: workout.totalSets ? `${workout.completed} / ${workout.totalSets}` : "Rest week",
+      meta: workout.totalSets ? `${trainingProgress}% of planned sets` : "No workouts planned",
+      progress: trainingProgress,
+      neutral: !workout.totalSets
+    },
+    {
+      label: "Training days",
+      value: `${workout.trainingDays} days`,
+      meta: "Days with at least one planned set",
+      progress: 0,
+      neutral: true
+    },
+    {
+      label: "Training volume",
+      value: `${formatNumber(workout.volume)} kg`,
+      meta: "Current weekly volume",
+      progress: 0,
+      neutral: true
+    }
+  ];
+  const nutritionItems = [
+    dashboardTargetItem("Weekly calories", intake.totalCalories, weeklyCalories, "kcal", "weekly target"),
+    dashboardTargetItem("Protein", intake.totalProtein, weeklyProtein, "g", "weekly target"),
+    dashboardTargetItem("Carbs", intake.totalCarbs, weeklyCarbs, "g", "weekly target"),
+    dashboardTargetItem("Fat", intake.totalFat, weeklyFat, "g", "weekly target")
+  ];
+  const recoveryItems = [
+    {
+      label: "Average sleep",
+      value: routine.sleepLoggedDays ? formatSleepMinutes(routine.averageSleepMinutes) : "Not logged",
+      meta: `Across ${routine.sleepLoggedDays}/7 wake-up days`,
+      progress: progressToward(routine.averageSleepMinutes, 450),
+      neutral: false
+    },
+    {
+      label: "Average sleep score",
+      value: routine.qualityLoggedDays ? `${formatNumber(routine.averageQuality)}/100` : "Not logged",
+      meta: `Across ${routine.qualityLoggedDays}/7 wake-up days`,
+      progress: progressToward(routine.averageQuality, 80),
+      neutral: false
+    },
+    dashboardTargetItem("Reading", routine.totalBookPages, weeklyBookPages, "pages", "weekly target"),
+    dashboardTargetItem("Steps", routine.totalSteps, weeklySteps, "steps", "weekly target"),
+    {
+      label: "Average stress",
+      value: routine.stressLoggedDays ? `${formatNumber(routine.averageStress)}/100` : "Not logged",
+      meta: `${routine.stressLoggedDays}/7 days logged`,
+      progress: 0,
+      neutral: true
+    }
+  ];
+  const scoredItems = [...trainingItems, ...nutritionItems, ...recoveryItems].filter((item) => !item.neutral);
+  const score = scoredItems.length
+    ? Math.round(scoredItems.reduce((sum, item) => sum + Math.min(100, item.progress), 0) / scoredItems.length)
+    : 0;
+
+  return {
+    score,
+    completedCount: scoredItems.filter((item) => item.progress >= 100).length,
+    targetCount: scoredItems.length,
+    trainingItems,
+    nutritionItems,
+    recoveryItems
+  };
+}
+
+function dashboardTargetItem(label, value, target, unit, targetLabel = "daily target") {
   return {
     label,
     value: `${formatNumber(value)} / ${formatNumber(target)} ${unit}`,
-    meta: target ? `${progressToward(value, target)}% of daily target` : "No target set",
+    meta: target ? `${progressToward(value, target)}% of ${targetLabel}` : "No target set",
     progress: progressToward(value, target),
     neutral: !target
   };
