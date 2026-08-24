@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "89";
+const APP_VERSION = "90";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_LOCAL_UMD_URL = `./assets/supabase.min.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -83,6 +83,9 @@ let activePendingSyncKey = PENDING_SYNC_KEY;
 let activeUserId = null;
 let state = loadState();
 let authScreenMode = "sign-in";
+let authBusy = false;
+let authBusyMode = "sign-in";
+let pendingViewAnimation = true;
 let toastTimer = 0;
 let cloudSyncTimer = 0;
 let nutritionSyncTimer = 0;
@@ -1386,8 +1389,15 @@ function render() {
     saveLocal();
   }
   const lockedForAuth = cloud.configured && !cloud.session;
-  const publicContent = !cloud.ready
-    ? renderLoadingShell()
+  const publicContent = authBusy
+    ? renderLoadingShell(
+      authBusyMode === "sign-up" ? "Creating your account" : "Signing you in",
+      authBusyMode === "sign-up"
+        ? "Preparing a private workspace for your progress."
+        : "Connecting your account and syncing the latest data."
+    )
+    : !cloud.ready
+      ? renderLoadingShell()
     : cloud.passwordRecovery
       ? renderPasswordResetShell()
       : lockedForAuth
@@ -1439,7 +1449,7 @@ function render() {
         <div class="topbar">
         <div class="brand">
           <div class="brand-mark" aria-hidden="true">
-            <img src="./icon.svg" alt="">
+            <img src="./assets/brand-mark-v2.png" alt="">
           </div>
           <div class="brand-copy">
             <h1>${PRODUCT_NAME} <small>by David</small></h1>
@@ -1479,7 +1489,9 @@ function render() {
           </div>
         </div>
       </header>
-      ${content}
+      <div class="view-stage${pendingViewAnimation ? " view-stage-enter" : ""}">
+        ${content}
+      </div>
       <nav class="mobile-nav" aria-label="Mobilni navigace">
         ${renderViewButton("plan", "Plan")}
         ${renderViewButton("nutrition", "Nutrition")}
@@ -1490,6 +1502,7 @@ function render() {
       ${renderPhaseCompareViewer()}
     </div>
   `;
+  pendingViewAnimation = false;
   restoreDayListScroll(preservedDayListScroll);
 }
 
@@ -1595,15 +1608,20 @@ function renderCopyDayDialog() {
   `;
 }
 
-function renderLoadingShell() {
+function renderLoadingShell(title = "Preparing your workspace", copy = "Checking your session and loading the right cloud data.") {
   return `
-    <main class="auth-shell">
-      <section class="auth-panel profile-panel loading-panel">
-        <div>
-          <p class="eyebrow">${PRODUCT_EYEBROW}</p>
-          <h2>Preparing your workspace</h2>
-          <p class="auth-copy">Checking your session and loading the right cloud data.</p>
+    <main class="loading-shell" role="status" aria-live="polite">
+      <section class="brand-loader">
+        <div class="brand-loader-mark" aria-hidden="true">
+          <span class="brand-loader-orbit"></span>
+          <img src="./assets/brand-mark-v2.png" alt="">
         </div>
+        <div class="brand-loader-copy">
+          <p class="eyebrow">${PRODUCT_EYEBROW}</p>
+          <h2>${escapeHtml(title)}</h2>
+          <p>${escapeHtml(copy)}</p>
+        </div>
+        <div class="brand-loader-track" aria-hidden="true"><span></span></div>
       </section>
     </main>
   `;
@@ -1617,7 +1635,7 @@ function renderAuthShell() {
         <div class="auth-brand-stage">
           <div class="auth-product-lockup">
             <div class="auth-product-mark" aria-hidden="true">
-              <img src="./icon.svg" alt="">
+              <img src="./assets/brand-mark-v2.png" alt="">
             </div>
             <div>
               <strong>${PRODUCT_NAME}</strong>
@@ -1715,30 +1733,63 @@ function renderPasswordResetShell() {
 }
 
 function renderProfileShell() {
+  const email = cloud.session?.user?.email || "Cloud account";
+  const initial = profileName().slice(0, 1).toUpperCase() || "B";
+  const cloudSynced = Boolean(cloud.configured && cloud.session);
+  const cloudState = cloudSynced ? "Cloud synced" : "Local mode";
+  const cloudHeading = cloudSynced ? "Synchronizace aktivní" : "Cloud není připojený";
+  const cloudCopy = cloudSynced
+    ? "Tréninky, nutrition a routine jsou při přihlášení oddělené podle účtu."
+    : "Připoj Supabase a přihlas se, aby se data synchronizovala mezi zařízeními.";
+  const cloudConnection = cloudSynced ? "Supabase connected" : "Supabase offline";
   return `
-    <main class="auth-shell">
-      <section class="auth-panel profile-panel">
+    <main class="profile-shell">
+      <section class="profile-hero">
+        <div class="profile-avatar-large" aria-hidden="true">${escapeHtml(initial)}</div>
         <div>
-          <p class="eyebrow">${PRODUCT_NAME}</p>
-          <h2>Profil a prezdivka</h2>
-          <p class="auth-copy">Tohle jmeno se ukazuje nahore v appce, ve feedu, postech a progressu.</p>
+          <p class="eyebrow">Become Better account</p>
+          <h2>${escapeHtml(profileName())}</h2>
+          <p>${escapeHtml(email)}</p>
         </div>
-        <form class="auth-card profile-card" data-profile-form>
-          <label class="field">
-            <span>Jmeno / prezdivka</span>
-            <input class="input" name="display_name" value="${escapeAttr(profileName())}" placeholder="Treba David" maxlength="40" required>
-          </label>
-          <button class="btn primary" type="submit">Ulozit profil</button>
-        </form>
-        ${renderLocalRecoveryCard()}
-        <div class="auth-card profile-card danger-zone">
-          <div>
-            <h3>Vymazat data uctu</h3>
-            <p class="microcopy">Smaze jen tvoje workouty a nutrition data v cloudu i na tomhle zarizeni. Profil a prihlaseni zustanou.</p>
-          </div>
-          <button class="btn danger" data-action="reset-account-data">Vymazat moje data</button>
-        </div>
+        <span class="profile-cloud-state${cloudSynced ? "" : " offline"}"><span></span> ${cloudState}</span>
       </section>
+      <div class="profile-layout">
+        <div class="profile-main-column">
+          <section class="profile-section">
+            <div class="profile-section-head">
+              <span>Identity</span>
+              <h3>Profil a přezdívka</h3>
+              <p>Jméno se ukazuje v aplikaci a ve sdílených přehledech.</p>
+            </div>
+            <form class="profile-form" data-profile-form>
+              <label class="field">
+                <span>Jméno / přezdívka</span>
+                <input class="input" name="display_name" value="${escapeAttr(profileName())}" placeholder="Třeba David" maxlength="40" required>
+              </label>
+              <button class="btn primary" type="submit">Uložit změny</button>
+            </form>
+          </section>
+          ${renderLocalRecoveryCard()}
+        </div>
+        <aside class="profile-aside">
+          <section class="profile-section profile-sync-card">
+            <div class="profile-section-head">
+              <span>Cloud</span>
+              <h3>${cloudHeading}</h3>
+              <p>${cloudCopy}</p>
+            </div>
+            <div class="profile-sync-line${cloudSynced ? "" : " offline"}"><span></span><strong>${cloudConnection}</strong></div>
+          </section>
+          <section class="profile-section danger-zone">
+          <div>
+              <span class="section-kicker">Danger zone</span>
+              <h3>Vymazat data účtu</h3>
+              <p>Smaže workouty a nutrition data v cloudu i na tomto zařízení. Profil a přihlášení zůstanou.</p>
+          </div>
+            <button class="btn danger" type="button" data-action="reset-account-data">Vymazat moje data</button>
+          </section>
+        </aside>
+      </div>
     </main>
   `;
 }
@@ -1752,13 +1803,14 @@ function renderLocalRecoveryCard() {
   if (stats.nutritionWeeks) pieces.push(`${stats.nutritionWeeks} nutrition tydnu`);
   if (stats.progressRows) pieces.push(`${stats.progressRows} progress radku`);
   return `
-    <div class="auth-card profile-card">
-      <div>
-        <h3>Obnovit lokalni data z tohoto zarizeni</h3>
-        <p class="microcopy">Nasel jsem mimo cloud lokalni zapis: ${escapeHtml(pieces.join(", "))}. Prenos cloud nemaze, jen doplni novejsi lokalni zaznamy do tveho uctu.</p>
+    <section class="profile-section recovery-section">
+      <div class="profile-section-head">
+        <span>Recovery</span>
+        <h3>Obnovit lokální data</h3>
+        <p>Na tomto zařízení je mimo cloud: ${escapeHtml(pieces.join(", "))}. Přenos cloud nemaže, jen doplní novější lokální záznamy.</p>
       </div>
-      <button class="btn primary" data-action="recover-local-data">Prenest do uctu a synchronizovat</button>
-    </div>
+      <button class="btn" type="button" data-action="recover-local-data">Přenést do účtu</button>
+    </section>
   `;
 }
 
@@ -3311,6 +3363,7 @@ async function handleClick(event) {
       cloud.feed = cloud.feed.filter(isSelectedFeedRow);
     }
     state.activeView = nextView;
+    pendingViewAnimation = true;
     saveLocal();
     render();
     if (nextView === "nutrition" || nextView === "sleep") await loadCloudNutritionWeek();
@@ -3848,6 +3901,9 @@ async function handleSubmit(event) {
   const password = String(form.get("password") || "");
 
   if (authMode === "sign-in") {
+    authBusy = true;
+    authBusyMode = "sign-in";
+    render();
     try {
       const { data, error } = await withTimeout(
         cloud.client.auth.signInWithPassword({ email, password }),
@@ -3855,6 +3911,7 @@ async function handleSubmit(event) {
         "Prihlaseni vyprselo, zkus to prosim znovu."
       );
       if (error) {
+        authBusy = false;
         cloud.authNotice = {
           type: "error",
           title: "Sign in failed",
@@ -3868,6 +3925,7 @@ async function handleSubmit(event) {
 
       const session = data.session || (await cloud.client.auth.getSession()).data.session;
       if (!session) {
+        authBusy = false;
         cloud.authNotice = {
           type: "error",
           title: "Sign in failed",
@@ -3880,9 +3938,12 @@ async function handleSubmit(event) {
 
       await finishSignedInSession(session, "Jsi prihlaseny.");
       state.activeView = "plan";
+      pendingViewAnimation = true;
+      authBusy = false;
       saveLocal();
       render();
     } catch (error) {
+      authBusy = false;
       cloud.authNotice = {
         type: "error",
         title: "Sign in failed",
@@ -3896,6 +3957,9 @@ async function handleSubmit(event) {
   }
 
   if (authMode === "sign-up") {
+    authBusy = true;
+    authBusyMode = "sign-up";
+    render();
     try {
       const { data, error } = await withTimeout(
         cloud.client.auth.signUp({
@@ -3909,6 +3973,7 @@ async function handleSubmit(event) {
         "Registrace vyprsela, zkus to prosim znovu."
       );
       if (error) {
+        authBusy = false;
         cloud.authNotice = {
           type: "error",
           title: "Registration failed",
@@ -3921,6 +3986,7 @@ async function handleSubmit(event) {
       }
 
       event.target.reset();
+      authBusy = false;
       cloud.pendingEmail = email;
       authScreenMode = "sign-in";
       cloud.authNotice = data.session
@@ -3937,6 +4003,7 @@ async function handleSubmit(event) {
       render();
       showToast(data.session ? "Ucet vytvoren." : "Overovaci e-mail odeslan.");
     } catch (error) {
+      authBusy = false;
       cloud.authNotice = {
         type: "error",
         title: "Registration failed",

@@ -1,17 +1,19 @@
-const CACHE_NAME = "become-better-v89";
+const CACHE_NAME = "become-better-v90";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=89",
-  "./app.js?v=89",
-  "./supabase-config.js?v=89",
+  "./styles.css?v=90",
+  "./app.js?v=90",
+  "./supabase-config.js?v=90",
   "./manifest.webmanifest",
   "./icon.svg",
   "./assets/icon-192.png",
   "./assets/icon-512.png",
   "./assets/icon-maskable-512.png",
   "./assets/apple-touch-icon.png",
-  "./assets/supabase.min.js?v=89"
+  "./assets/brand-mark-v2.png",
+  "./assets/become-better-logo-v2.png",
+  "./assets/supabase.min.js?v=90"
 ];
 
 self.addEventListener("install", (event) => {
