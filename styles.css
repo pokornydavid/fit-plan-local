@@ -162,7 +162,7 @@ button:disabled {
 
 .view-tabs {
   display: inline-grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   width: min(760px, 100%);
   padding: 4px;
@@ -3021,7 +3021,7 @@ button.cloud-badge:hover {
   }
 
   .view-tabs {
-    grid-template-columns: repeat(6, minmax(92px, 1fr));
+    grid-template-columns: repeat(3, minmax(92px, 1fr));
     overflow-x: auto;
     scrollbar-width: none;
   }

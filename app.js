@@ -3,8 +3,9 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "85";
+const APP_VERSION = "86";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
+const SUPABASE_LOCAL_UMD_URL = `./assets/supabase.min.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_FALLBACK_MODULE_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
 const SUPABASE_UMD_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js";
@@ -13,6 +14,8 @@ const CLOUD_REFRESH_INTERVAL_MS = 6000;
 const PRODUCT_NAME = "Become Better";
 const PRODUCT_TAGLINE = "Performance and recovery tracker";
 const PRODUCT_EYEBROW = "Become Better by David";
+const MAIN_VIEWS = ["plan", "nutrition", "sleep"];
+const APP_VIEWS = [...MAIN_VIEWS, "profile"];
 const DEFAULT_PHASE_WEEKS = 16;
 const NUTRITION_PHASE_WEEK_START = "1970-01-05";
 const PHASE_PHOTO_BUCKET = "progress-photos";
@@ -179,11 +182,23 @@ async function initSupabase() {
     cloud.status = "auth";
     cloud.message = "Supabase je pripraveny.";
 
-    const { data } = await withTimeout(cloud.client.auth.getSession(), CLOUD_INIT_TIMEOUT_MS, "Supabase session timeout");
-    cloud.session = data.session;
+    let sessionData = null;
+    try {
+      const { data } = await withTimeout(cloud.client.auth.getSession(), CLOUD_INIT_TIMEOUT_MS, "Supabase session timeout");
+      sessionData = data;
+    } catch (sessionError) {
+      console.warn(sessionError);
+      cloud.message = "Supabase je pripraveny. Prihlas se prosim znovu.";
+    }
+
+    cloud.session = sessionData?.session || null;
     if (cloud.session) {
       activateUserStorage(cloud.session.user.id);
-      await ensureProfile();
+      try {
+        await ensureProfile();
+      } catch (profileError) {
+        console.warn(profileError);
+      }
     }
 
     cloud.client.auth.onAuthStateChange(async (event, session) => {
@@ -195,7 +210,11 @@ async function initSupabase() {
           cloud.authNotice = null;
           cloud.pendingEmail = "";
         }
-        await ensureProfile();
+        try {
+          await ensureProfile();
+        } catch (profileError) {
+          console.warn(profileError);
+        }
         if (!cloud.passwordRecovery) {
           await finishSignedInSession(session, "Jsi prihlaseny.");
         }
@@ -217,6 +236,15 @@ async function initSupabase() {
 }
 
 async function importSupabaseClient() {
+  if (window.supabase?.createClient) return { createClient: window.supabase.createClient };
+
+  try {
+    await withTimeout(loadExternalScript(SUPABASE_LOCAL_UMD_URL), CLOUD_INIT_TIMEOUT_MS, "Supabase local client timeout");
+    if (window.supabase?.createClient) return { createClient: window.supabase.createClient };
+  } catch (localError) {
+    console.warn(localError);
+  }
+
   try {
     return await withTimeout(import(SUPABASE_MODULE_URL), CLOUD_INIT_TIMEOUT_MS, "Supabase client timeout");
   } catch (error) {
@@ -225,7 +253,7 @@ async function importSupabaseClient() {
       return await withTimeout(import(SUPABASE_FALLBACK_MODULE_URL), CLOUD_INIT_TIMEOUT_MS, "Supabase fallback client timeout");
     } catch (fallbackError) {
       console.warn(fallbackError);
-      await loadExternalScript(SUPABASE_UMD_URL);
+      await withTimeout(loadExternalScript(SUPABASE_UMD_URL), CLOUD_INIT_TIMEOUT_MS, "Supabase UMD client timeout");
       if (window.supabase?.createClient) return { createClient: window.supabase.createClient };
       throw fallbackError;
     }
@@ -383,7 +411,7 @@ function createAccountState(theme = "dark") {
 function normalizeState(value, fallback = createDefaultState()) {
   const next = {
     theme: value?.theme === "light" ? "light" : "dark",
-    activeView: ["plan", "nutrition", "sleep", "feed", "posts", "leaderboard", "profile"].includes(value?.activeView) ? value.activeView : "plan",
+    activeView: APP_VIEWS.includes(value?.activeView) ? value.activeView : "plan",
     selectedDay: Number.isInteger(value?.selectedDay) ? value.selectedDay : fallback.selectedDay,
     weekStart: value?.weekStart || fallback.weekStart,
     weeks: value?.weeks && typeof value.weeks === "object" ? value.weeks : fallback.weeks,
@@ -1347,6 +1375,10 @@ function createSampleWeek() {
 
 function render() {
   applyTheme();
+  if (!APP_VIEWS.includes(state.activeView)) {
+    state.activeView = "plan";
+    saveLocal();
+  }
   const preservedDayListScroll = state.activeView === "plan"
     ? app.querySelector("[data-day-list]")?.scrollLeft || 0
     : 0;
@@ -1399,9 +1431,6 @@ function render() {
             ${renderViewButton("plan", "Plan")}
             ${renderViewButton("nutrition", "Nutrition")}
             ${renderViewButton("sleep", "Routine")}
-            ${renderViewButton("feed", "Feed")}
-            ${renderViewButton("leaderboard", "Progress")}
-            ${renderViewButton("posts", "Posty")}
           </nav>
           <div class="week-switcher" aria-label="Vyber tydne">
             <button class="icon-btn" data-action="prev-week" title="Predchozi tyden" aria-label="Predchozi tyden">&lt;</button>
@@ -3179,7 +3208,7 @@ async function handleClick(event) {
 
   if (action === "set-view") {
     const nextView = target.dataset.view;
-    if (!["plan", "nutrition", "sleep", "feed", "posts", "leaderboard", "profile"].includes(nextView)) return;
+    if (!APP_VIEWS.includes(nextView)) return;
     if (nextView === "feed" && state.activeView !== "feed") {
       setSelectedDate(new Date());
       ensureWeek();
