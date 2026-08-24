@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "91";
+const APP_VERSION = "92";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_LOCAL_UMD_URL = `./assets/supabase.min.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -14,7 +14,7 @@ const CLOUD_REFRESH_INTERVAL_MS = 6000;
 const PRODUCT_NAME = "Become Better";
 const PRODUCT_TAGLINE = "Performance and recovery tracker";
 const PRODUCT_EYEBROW = "Become Better by David";
-const MAIN_VIEWS = ["plan", "nutrition", "sleep"];
+const MAIN_VIEWS = ["dashboard", "plan", "nutrition", "sleep"];
 const APP_VIEWS = [...MAIN_VIEWS, "profile"];
 const DEFAULT_PHASE_WEEKS = 16;
 const NUTRITION_PHASE_WEEK_START = "1970-01-05";
@@ -1424,8 +1424,11 @@ function render() {
   const daySummary = summarizeDay(selected);
   const nutritionSummary = summarizeNutrition(nutrition);
   const sleepSummary = summarizeSleep(nutrition);
+  const dashboardSummary = summarizeDailyDashboard(selected, nutrition.days[state.selectedDay], nutrition.goals);
   const content = state.activeView === "profile"
       ? renderProfileShell()
+    : state.activeView === "dashboard"
+      ? renderDashboardShell(selected, nutrition.days[state.selectedDay], dashboardSummary)
     : state.activeView === "feed"
       ? renderFeedShell()
       : state.activeView === "posts"
@@ -1459,6 +1462,7 @@ function render() {
         </div>
         <div class="desktop-nav">
           <nav class="view-tabs" aria-label="Hlavni navigace">
+            ${renderViewButton("dashboard", "Dashboard")}
             ${renderViewButton("plan", "Plan")}
             ${renderViewButton("nutrition", "Nutrition")}
             ${renderViewButton("sleep", "Routine")}
@@ -1494,6 +1498,7 @@ function render() {
         ${content}
       </div>
       <nav class="mobile-nav" aria-label="Mobilni navigace">
+        ${renderViewButton("dashboard", "Dashboard")}
         ${renderViewButton("plan", "Plan")}
         ${renderViewButton("nutrition", "Nutrition")}
         ${renderViewButton("sleep", "Routine")}
@@ -1521,6 +1526,7 @@ function renderViewButton(view, label) {
 }
 
 function renderActiveViewTitle() {
+  if (state.activeView === "dashboard") return "Dashboard";
   if (state.activeView === "nutrition") return "Nutrition";
   if (state.activeView === "sleep") return "Routine";
   if (state.activeView === "profile") return "Account";
@@ -1528,6 +1534,7 @@ function renderActiveViewTitle() {
 }
 
 function renderActiveViewSubtitle() {
+  if (state.activeView === "dashboard") return "Daily consistency at a glance";
   if (state.activeView === "nutrition") return "Weekly intake and bodyweight";
   if (state.activeView === "sleep") return "Sleep, reading and daily recovery";
   if (state.activeView === "profile") return "Profile and cloud settings";
@@ -1535,6 +1542,14 @@ function renderActiveViewSubtitle() {
 }
 
 function renderWeekHeaderMeta(summary, nutrition, nutritionSummary, sleepSummary) {
+  if (state.activeView === "dashboard") {
+    const dashboard = summarizeDailyDashboard(
+      ensureWeek()[state.selectedDay],
+      nutrition.days[state.selectedDay],
+      nutrition.goals
+    );
+    return `${dashboard.score}% daily score`;
+  }
   if (state.activeView === "nutrition") {
     return `${formatNumber(nutritionSummary.totalCalories)}/${formatNumber(nutrition.goals.weeklyCalories)} kcal`;
   }
@@ -1984,6 +1999,101 @@ function renderLeaderboardShell() {
         </div>
       </section>
     </main>
+  `;
+}
+
+function renderDashboardShell(day, nutritionDay, summary) {
+  const selectedDate = addDays(parseDate(state.weekStart), state.selectedDay);
+  const dayLabel = DAY_LABELS[state.selectedDay][1];
+  const workoutLabel = summary.workout.totalSets
+    ? `${summary.workout.completed}/${summary.workout.totalSets} sets`
+    : "Rest day";
+
+  return `
+    <main class="dashboard-shell">
+      <section class="dashboard-hero">
+        <div class="dashboard-hero-copy">
+          <span class="eyebrow">DAILY DASHBOARD</span>
+          <h2>${escapeHtml(dayLabel)} ${escapeHtml(formatShortDate(selectedDate))}</h2>
+          <p>${escapeHtml(summary.message)}</p>
+        </div>
+        <div class="dashboard-score dashboard-score-${escapeAttr(summary.tone)}">
+          <span>Daily score</span>
+          <strong>${summary.score}%</strong>
+          <small>${summary.completedCount}/${summary.targetCount} targets reached</small>
+        </div>
+        <div class="dashboard-day-tabs" aria-label="Select dashboard day">
+          ${DAY_LABELS.map((label, index) => {
+            const date = addDays(parseDate(state.weekStart), index);
+            const active = index === state.selectedDay ? " active" : "";
+            return `
+              <button class="dashboard-day-tab${active}" data-action="select-day" data-day="${index}">
+                <span>${escapeHtml(label[0])}</span>
+                <strong>${escapeHtml(formatShortDate(date))}</strong>
+              </button>
+            `;
+          }).join("")}
+        </div>
+        <div class="dashboard-score-track" role="progressbar" aria-label="Daily score" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${summary.score}">
+          <span style="--value:${summary.score}%"></span>
+        </div>
+        <div class="dashboard-quick-stats">
+          ${renderDashboardQuickStat("Training", workoutLabel, summary.workout.title || "No workout title")}
+          ${renderDashboardQuickStat("Calories", `${formatNumber(summary.nutrition.calories)} / ${formatNumber(summary.nutrition.calorieTarget)}`, "kcal today")}
+          ${renderDashboardQuickStat("Sleep", formatSleepMinutes(summary.recovery.sleepMinutes), summary.recovery.sleepLogged ? `${formatNumber(summary.recovery.sleepQuality)}/100 score` : "Not logged")}
+          ${renderDashboardQuickStat("Steps", formatNumber(summary.recovery.steps), `${formatNumber(summary.recovery.stepsTarget)} daily target`)}
+        </div>
+      </section>
+      <section class="dashboard-grid" aria-label="Daily details">
+        ${renderDashboardSection("Training", "Workout execution", "plan", summary.trainingItems)}
+        ${renderDashboardSection("Nutrition", "Daily intake", "nutrition", summary.nutritionItems)}
+        ${renderDashboardSection("Recovery & routine", "Sleep and habits", "sleep", summary.recoveryItems)}
+      </section>
+    </main>
+  `;
+}
+
+function renderDashboardQuickStat(label, value, meta) {
+  return `
+    <div class="dashboard-quick-stat">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+      <small>${escapeHtml(meta)}</small>
+    </div>
+  `;
+}
+
+function renderDashboardSection(title, copy, view, items) {
+  return `
+    <article class="dashboard-section">
+      <header class="dashboard-section-head">
+        <div>
+          <span>${escapeHtml(copy)}</span>
+          <h3>${escapeHtml(title)}</h3>
+        </div>
+        <button class="btn subtle dashboard-open" data-action="set-view" data-view="${escapeAttr(view)}">Open</button>
+      </header>
+      <div class="dashboard-achievement-list">
+        ${items.map(renderDashboardAchievement).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderDashboardAchievement(item) {
+  const progress = Math.max(0, Math.min(100, Math.round(toNumber(item.progress, 0))));
+  const stateClass = item.neutral ? " neutral" : progress >= 100 ? " complete" : "";
+  return `
+    <div class="dashboard-achievement${stateClass}">
+      <div class="dashboard-achievement-copy">
+        <span>${escapeHtml(item.label)}</span>
+        <strong>${escapeHtml(item.value)}</strong>
+      </div>
+      <div class="dashboard-achievement-track" role="progressbar" aria-label="${escapeAttr(item.label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}">
+        <span style="--value:${progress}%"></span>
+      </div>
+      <small>${escapeHtml(item.meta)}</small>
+    </div>
   `;
 }
 
@@ -3413,11 +3523,15 @@ async function handleClick(event) {
     pendingViewAnimation = true;
     saveLocal();
     render();
+    if (nextView === "dashboard") {
+      await loadCloudWeek();
+      await loadCloudNutritionWeek();
+    }
     if (nextView === "nutrition" || nextView === "sleep") await loadCloudNutritionWeek();
     if (nextView === "feed") await loadCloudWeek();
     if (nextView === "feed" || nextView === "posts" || nextView === "leaderboard") await loadSocialData();
     await flushPendingSync();
-    if (nextView === "nutrition" || nextView === "sleep") saveLocal();
+    if (nextView === "dashboard" || nextView === "nutrition" || nextView === "sleep") saveLocal();
     render();
     return;
   }
@@ -6919,6 +7033,151 @@ function summarizeDay(day) {
     volume,
     progress: totalSets ? Math.round((completed / totalSets) * 100) : 0
   };
+}
+
+function summarizeDailyDashboard(day, nutritionDay = {}, goals = DEFAULT_NUTRITION_GOALS) {
+  const workout = summarizeDay(day);
+  const calories = toNumber(nutritionDay?.calories, 0);
+  const protein = toNumber(nutritionDay?.protein, 0);
+  const carbs = toNumber(nutritionDay?.carbs, 0);
+  const fat = toNumber(nutritionDay?.fat, 0);
+  const calorieTarget = Math.max(0, toNumber(goals?.dailyCalories, 0));
+  const proteinTarget = Math.max(0, toNumber(goals?.protein, 0));
+  const carbsTarget = Math.max(0, toNumber(goals?.carbs, 0));
+  const fatTarget = Math.max(0, toNumber(goals?.fat, 0));
+  const sleepMinutes = sleepMinutesForDay(nutritionDay);
+  const sleepQuality = toNumber(nutritionDay?.sleepQuality, 0);
+  const stress = toNumber(nutritionDay?.stress, 0);
+  const bookPages = toNumber(nutritionDay?.bookPages, 0);
+  const steps = toNumber(nutritionDay?.steps, 0);
+  const bookTarget = Math.max(1, Math.ceil(toNumber(goals?.bookPages, 0) / 7));
+  const stepsTarget = Math.max(1, Math.round(toNumber(goals?.weeklySteps, 0) / 7));
+  const sleepTarget = 450;
+  const sleepScoreTarget = 80;
+  const plannedWorkout = workout.totalSets > 0;
+
+  const trainingItems = [
+    {
+      label: "Sets completed",
+      value: plannedWorkout ? `${workout.completed}/${workout.totalSets}` : "Rest day",
+      meta: plannedWorkout ? `${workout.progress}% of planned sets` : "No workout planned",
+      progress: workout.progress,
+      neutral: !plannedWorkout
+    },
+    {
+      label: "Training volume",
+      value: `${formatNumber(workout.volume)} kg`,
+      meta: `${day.exercises.length} exercises`,
+      progress: 0,
+      neutral: true
+    },
+    {
+      label: "Workout focus",
+      value: day.focus || "Not set",
+      meta: day.title || "Add a workout title in Plan",
+      progress: 0,
+      neutral: true
+    }
+  ];
+  const nutritionItems = [
+    dashboardTargetItem("Calories", calories, calorieTarget, "kcal"),
+    dashboardTargetItem("Protein", protein, proteinTarget, "g"),
+    dashboardTargetItem("Carbs", carbs, carbsTarget, "g"),
+    dashboardTargetItem("Fat", fat, fatTarget, "g")
+  ];
+  const recoveryItems = [
+    {
+      label: "Sleep duration",
+      value: formatSleepMinutes(sleepMinutes),
+      meta: `Target ${formatSleepMinutes(sleepTarget)}`,
+      progress: progressToward(sleepMinutes, sleepTarget)
+    },
+    {
+      label: "Sleep score",
+      value: sleepQuality ? `${formatNumber(sleepQuality)}/100` : "Not logged",
+      meta: `Target ${sleepScoreTarget}/100`,
+      progress: progressToward(sleepQuality, sleepScoreTarget)
+    },
+    dashboardTargetItem("Reading", bookPages, bookTarget, "pages"),
+    dashboardTargetItem("Steps", steps, stepsTarget, "steps"),
+    {
+      label: "Average stress",
+      value: nutritionDay?.stress === "" || nutritionDay?.stress === null || nutritionDay?.stress === undefined
+        ? "Not logged"
+        : `${formatNumber(stress)}/100`,
+      meta: stress ? (stress <= 35 ? "Low" : stress <= 65 ? "Moderate" : "High") : "Add watch data in Routine",
+      progress: 0,
+      neutral: true
+    }
+  ];
+  const scoredItems = [...trainingItems, ...nutritionItems, ...recoveryItems].filter((item) => !item.neutral);
+  const score = scoredItems.length
+    ? Math.round(scoredItems.reduce((sum, item) => sum + Math.min(100, item.progress), 0) / scoredItems.length)
+    : 0;
+  const completedCount = scoredItems.filter((item) => item.progress >= 100).length;
+  const hasLoggedData = plannedWorkout || calories > 0 || protein > 0 || sleepMinutes > 0 || sleepQuality > 0 || bookPages > 0 || steps > 0;
+  const message = !hasLoggedData
+    ? "Start logging today and your daily picture will build here."
+    : score >= 85
+      ? "Excellent consistency. Most of today's targets are handled."
+      : score >= 65
+        ? "You are on track. A few focused actions can finish the day."
+        : score >= 40
+          ? "Momentum is building. Keep closing the remaining targets."
+          : "A few logs are in. Use the details below to choose the next action.";
+
+  return {
+    score,
+    completedCount,
+    targetCount: scoredItems.length,
+    tone: score >= 80 ? "high" : score >= 45 ? "mid" : "low",
+    message,
+    workout: {
+      ...workout,
+      title: day.title || "",
+      focus: day.focus || "",
+      exerciseCount: day.exercises.length
+    },
+    nutrition: {
+      calories,
+      protein,
+      carbs,
+      fat,
+      calorieTarget,
+      proteinTarget,
+      carbsTarget,
+      fatTarget
+    },
+    recovery: {
+      sleepMinutes,
+      sleepQuality,
+      sleepLogged: sleepMinutes > 0 || sleepQuality > 0,
+      stress,
+      bookPages,
+      bookTarget,
+      steps,
+      stepsTarget
+    },
+    trainingItems,
+    nutritionItems,
+    recoveryItems
+  };
+}
+
+function dashboardTargetItem(label, value, target, unit) {
+  return {
+    label,
+    value: `${formatNumber(value)} / ${formatNumber(target)} ${unit}`,
+    meta: target ? `${progressToward(value, target)}% of daily target` : "No target set",
+    progress: progressToward(value, target),
+    neutral: !target
+  };
+}
+
+function progressToward(value, target) {
+  const normalizedTarget = toNumber(target, 0);
+  if (normalizedTarget <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((toNumber(value, 0) / normalizedTarget) * 100)));
 }
 
 function summarizeDayMuscles(day) {
