@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "94";
+const APP_VERSION = "95";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_LOCAL_UMD_URL = `./assets/supabase.min.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -88,6 +88,12 @@ const UI_TRANSLATION_ENTRIES = [
   ["Denní přehled", "Daily dashboard", ["DAILY DASHBOARD"]],
   ["Týdenní přehled", "Weekly overview", ["WEEKLY OVERVIEW"]],
   ["Denní skóre", "Daily score"],
+  ["Další nejlepší krok", "Next best action"],
+  ["Skvělý den", "Excellent day"],
+  ["Silný základ", "Strong foundation"],
+  ["Dobré tempo", "Good momentum"],
+  ["Den se rozjíždí", "The day is building"],
+  ["Připraven začít", "Ready to start"],
   ["Vybrat den přehledu", "Select dashboard day"],
   ["Denní detaily", "Daily details"],
   ["Týdenní progres", "Weekly progress"],
@@ -207,6 +213,20 @@ const UI_TRANSLATION_ENTRIES = [
   ["Týdenní kalorie", "Weekly calories"],
   ["Týdenní čtení", "Reading"],
   ["Týdenní kroky", "Weekly steps"],
+  ["Roční konzistence", "Yearly consistency"],
+  ["Roční mapa spánku", "Yearly sleep map"],
+  ["Nocí zapsáno", "Nights logged"],
+  ["Průměr", "Average"],
+  ["Méně", "Less"],
+  ["Více", "More"],
+  ["Bez záznamu", "No record"],
+  ["Každé políčko je jedna noc. Čím jasnější políčko, tím delší zaznamenaný spánek.", "Each square is one night. Brighter squares represent longer recorded sleep."],
+  ["Zapiš první jídlo a nastartuj dnešní přehled.", "Log your first meal to start today's overview."],
+  ["Doplň ranní spánek a skóre z hodinek.", "Add last night's sleep and your watch score."],
+  ["Hlavní cíle jsou hotové. Udrž dnešní rytmus.", "Your main targets are complete. Keep today's rhythm."],
+  ["Led", "Jan"], ["Úno", "Feb"], ["Bře", "Mar"], ["Dub", "Apr"],
+  ["Kvě", "May"], ["Čvn", "Jun"], ["Čvc", "Jul"], ["Srp", "Aug"],
+  ["Zář", "Sep"], ["Říj", "Oct"], ["Lis", "Nov"], ["Pro", "Dec"],
   ["Stránky / týden", "Book pages / week"],
   ["Kroky / týden", "Steps / week"],
   ["Skóre", "Score"],
@@ -469,6 +489,9 @@ function localizeInterfaceText(value, language = state?.language || "cs") {
       .replace(/(\d+)\/(\d+) cílů splněno/g, "$1/$2 targets reached")
       .replace(/Zapsáno (\d+)\/7 rán/g, "Across $1/7 wake-up days")
       .replace(/Zapsáno (\d+)\/7 dní/g, "$1/7 days logged")
+      .replace(/Dokonči (\d+) zbývající série v tréninku\./g, "Finish the remaining $1 workout sets.")
+      .replace(/Doplň ([\d\s,.]+) g bílkovin\./g, "Add $1 g of protein.")
+      .replace(/Do denního cíle zbývá ([\d\s,.]+) kroků\./g, "$1 steps remain to reach today's target.")
       .replace(/^(Nízký|Normální|Vysoký)(\s*[·-]\s*)/i, (_, level, separator) => `${({ "nízký": "Low", "normální": "Normal", "vysoký": "High" })[level.toLowerCase()] || level}${separator}`)
       .replace(/^Noc končící (.+?)\s+-\s+(.+)$/i, "Night ending $1 - $2")
       .replace(/Cíl (.+)/g, "Target $1")
@@ -1038,6 +1061,19 @@ function markPendingWorkoutSync(weekStart = state.weekStart, dayIndex = state.se
     dayIndex: Number(dayIndex),
     updatedAt,
     fingerprint: workoutDayFingerprint(day)
+  };
+  savePendingSync();
+}
+
+function markPendingWorkoutDeletion(weekStart = state.weekStart, dayIndex = state.selectedDay) {
+  const day = state.weeks?.[weekStart]?.[dayIndex];
+  const updatedAt = dayEditedAt(day) || new Date().toISOString();
+  pendingSync.workouts[workoutPendingKey(weekStart, dayIndex)] = {
+    weekStart,
+    dayIndex: Number(dayIndex),
+    updatedAt,
+    fingerprint: workoutDayFingerprint(day),
+    deleted: true
   };
   savePendingSync();
 }
@@ -2400,21 +2436,28 @@ function renderDashboardShell(summary, weeklySummary) {
   const selectedDate = addDays(parseDate(state.weekStart), state.selectedDay);
   const dayLabel = DAY_LABELS[state.selectedDay][1];
   const workoutLabel = summary.workout.totalSets
-    ? `${summary.workout.completed}/${summary.workout.totalSets} sets`
-    : "Rest day";
+    ? `${summary.workout.completed}/${summary.workout.totalSets} sérií`
+    : "Volno";
+  const scoreLabel = dashboardScoreLabel(summary.score);
+  const nextAction = dashboardNextAction(summary);
 
   const period = state.dashboardPeriod === "weekly" ? "weekly" : "daily";
   const dailyContent = `
       <section class="dashboard-hero">
         <div class="dashboard-hero-copy">
-          <span class="eyebrow">DAILY DASHBOARD</span>
+          <span class="eyebrow">DENNÍ PŘEHLED</span>
           <h2>${escapeHtml(dayLabel)} ${escapeHtml(formatShortDate(selectedDate))}</h2>
           <p>${escapeHtml(summary.message)}</p>
         </div>
         <div class="dashboard-score dashboard-score-${escapeAttr(summary.tone)}">
-          <span>Daily score</span>
-          <strong>${summary.score}%</strong>
-          <small>${summary.completedCount}/${summary.targetCount} targets reached</small>
+          <div class="dashboard-score-ring" style="--score:${summary.score}" aria-hidden="true">
+            <strong>${summary.score}%</strong>
+          </div>
+          <div class="dashboard-score-copy">
+            <span>Denní skóre</span>
+            <b>${escapeHtml(scoreLabel)}</b>
+            <small>${summary.completedCount}/${summary.targetCount} cílů splněno</small>
+          </div>
         </div>
         <div class="dashboard-day-tabs" aria-label="Select dashboard day">
           ${DAY_LABELS.map((label, index) => {
@@ -2431,17 +2474,21 @@ function renderDashboardShell(summary, weeklySummary) {
         <div class="dashboard-score-track" role="progressbar" aria-label="Daily score" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${summary.score}">
           <span style="--value:${summary.score}%"></span>
         </div>
+        <div class="dashboard-next-action">
+          <span>DALŠÍ NEJLEPŠÍ KROK</span>
+          <strong>${escapeHtml(nextAction)}</strong>
+        </div>
         <div class="dashboard-quick-stats">
-          ${renderDashboardQuickStat("Training", workoutLabel, summary.workout.title || "No workout title")}
-          ${renderDashboardQuickStat("Calories", `${formatNumber(summary.nutrition.calories)} / ${formatNumber(summary.nutrition.calorieTarget)}`, "kcal today")}
-          ${renderDashboardQuickStat("Sleep", formatSleepMinutes(summary.recovery.sleepMinutes), summary.recovery.sleepLogged ? `${formatNumber(summary.recovery.sleepQuality)}/100 score` : "Not logged")}
-          ${renderDashboardQuickStat("Steps", formatNumber(summary.recovery.steps), `${formatNumber(summary.recovery.stepsTarget)} daily target`)}
+          ${renderDashboardQuickStat("Trénink", workoutLabel, summary.workout.title || "Bez názvu tréninku", summary.workout.totalSets ? (summary.workout.progress >= 100 ? "success" : "active") : "neutral")}
+          ${renderDashboardQuickStat("Kalorie", `${formatNumber(summary.nutrition.calories)} / ${formatNumber(summary.nutrition.calorieTarget)}`, "kcal dnes", dashboardProgressTone(progressToward(summary.nutrition.calories, summary.nutrition.calorieTarget)))}
+          ${renderDashboardQuickStat("Spánek", formatSleepMinutes(summary.recovery.sleepMinutes), summary.recovery.sleepLogged ? `${formatNumber(summary.recovery.sleepQuality)}/100 skóre` : "Nezapsáno", summary.recovery.sleepLogged ? dashboardProgressTone(progressToward(summary.recovery.sleepMinutes, 450)) : "neutral")}
+          ${renderDashboardQuickStat("Kroky", formatNumber(summary.recovery.steps), `${formatNumber(summary.recovery.stepsTarget)} denní cíl`, dashboardProgressTone(progressToward(summary.recovery.steps, summary.recovery.stepsTarget)))}
         </div>
       </section>
       <section class="dashboard-grid" aria-label="Daily details">
-        ${renderDashboardSection("Training", "Workout execution", "plan", summary.trainingItems)}
-        ${renderDashboardSection("Nutrition", "Daily intake", "nutrition", summary.nutritionItems)}
-        ${renderDashboardSection("Recovery & routine", "Sleep and habits", "sleep", summary.recoveryItems)}
+        ${renderDashboardSection("Trénink", "TRÉNINKOVÝ VÝKON", "plan", summary.trainingItems)}
+        ${renderDashboardSection("Výživa", "DENNÍ PŘÍJEM", "nutrition", summary.nutritionItems)}
+        ${renderDashboardSection("Regenerace a návyky", "SPÁNEK A NÁVYKY", "sleep", summary.recoveryItems)}
       </section>
   `;
   return `
@@ -2451,6 +2498,7 @@ function renderDashboardShell(summary, weeklySummary) {
         <button class="dashboard-period-button${period === "weekly" ? " active" : ""}" data-action="set-dashboard-period" data-period="weekly" role="tab" aria-selected="${period === "weekly"}">Týdenní</button>
       </div>
       ${period === "weekly" ? renderWeeklyDashboard(weeklySummary) : dailyContent}
+      ${renderSleepYearHeatmap(selectedDate.getFullYear())}
     </main>
   `;
 }
@@ -2482,9 +2530,9 @@ function renderWeeklyDashboard(summary) {
   `;
 }
 
-function renderDashboardQuickStat(label, value, meta) {
+function renderDashboardQuickStat(label, value, meta, tone = "neutral") {
   return `
-    <div class="dashboard-quick-stat">
+    <div class="dashboard-quick-stat dashboard-tone-${escapeAttr(tone)}">
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(value)}</strong>
       <small>${escapeHtml(meta)}</small>
@@ -2494,13 +2542,13 @@ function renderDashboardQuickStat(label, value, meta) {
 
 function renderDashboardSection(title, copy, view, items) {
   return `
-    <article class="dashboard-section">
+    <article class="dashboard-section dashboard-section-${escapeAttr(view)}">
       <header class="dashboard-section-head">
         <div>
           <span>${escapeHtml(copy)}</span>
           <h3>${escapeHtml(title)}</h3>
         </div>
-        <button class="btn subtle dashboard-open" data-action="set-view" data-view="${escapeAttr(view)}">Open</button>
+        <button class="btn subtle dashboard-open" data-action="set-view" data-view="${escapeAttr(view)}">Otevřít</button>
       </header>
       <div class="dashboard-achievement-list">
         ${items.map(renderDashboardAchievement).join("")}
@@ -2511,7 +2559,8 @@ function renderDashboardSection(title, copy, view, items) {
 
 function renderDashboardAchievement(item) {
   const progress = Math.max(0, Math.min(100, Math.round(toNumber(item.progress, 0))));
-  const stateClass = item.neutral ? " neutral" : progress >= 100 ? " complete" : "";
+  const tone = item.tone || (item.neutral ? "neutral" : dashboardProgressTone(progress));
+  const stateClass = `${item.neutral ? " neutral" : progress >= 100 ? " complete" : ""} dashboard-tone-${tone}`;
   return `
     <div class="dashboard-achievement${stateClass}">
       <div class="dashboard-achievement-copy">
@@ -2524,6 +2573,115 @@ function renderDashboardAchievement(item) {
       <small>${escapeHtml(item.meta)}</small>
     </div>
   `;
+}
+
+function dashboardProgressTone(progress) {
+  const value = Math.max(0, Math.min(100, toNumber(progress, 0)));
+  if (value >= 100) return "success";
+  if (value >= 65) return "active";
+  if (value > 0) return "warning";
+  return "neutral";
+}
+
+function dashboardScoreLabel(score) {
+  const value = toNumber(score, 0);
+  if (value >= 85) return "Skvělý den";
+  if (value >= 65) return "Silný základ";
+  if (value >= 40) return "Dobré tempo";
+  if (value > 0) return "Den se rozjíždí";
+  return "Připraven začít";
+}
+
+function dashboardNextAction(summary) {
+  if (summary.workout.totalSets && summary.workout.completed < summary.workout.totalSets) {
+    return `Dokonči ${summary.workout.totalSets - summary.workout.completed} zbývající série v tréninku.`;
+  }
+  if (!summary.nutrition.calories) return "Zapiš první jídlo a nastartuj dnešní přehled.";
+  if (summary.nutrition.proteinTarget && summary.nutrition.protein < summary.nutrition.proteinTarget) {
+    return `Doplň ${formatNumber(summary.nutrition.proteinTarget - summary.nutrition.protein)} g bílkovin.`;
+  }
+  if (!summary.recovery.sleepLogged) return "Doplň ranní spánek a skóre z hodinek.";
+  if (summary.recovery.steps < summary.recovery.stepsTarget) {
+    return `Do denního cíle zbývá ${formatNumber(summary.recovery.stepsTarget - summary.recovery.steps)} kroků.`;
+  }
+  return "Hlavní cíle jsou hotové. Udrž dnešní rytmus.";
+}
+
+function renderSleepYearHeatmap(year) {
+  const sleepHistory = buildSleepHistory(year);
+  const entries = [...sleepHistory.values()].filter((minutes) => minutes > 0);
+  const average = entries.length
+    ? Math.round(entries.reduce((sum, minutes) => sum + minutes, 0) / entries.length)
+    : 0;
+  const start = getWeekStart(new Date(year, 0, 1));
+  const end = addDays(getWeekStart(new Date(year, 11, 31)), 6);
+  const cells = [];
+  for (let date = new Date(start); date <= end; date = addDays(date, 1)) {
+    const key = toDateInput(date);
+    const inYear = date.getFullYear() === year;
+    const minutes = inYear ? sleepHistory.get(key) || 0 : 0;
+    const level = inYear ? sleepHeatmapLevel(minutes) : -1;
+    const label = minutes
+      ? `${formatDateForDisplay(key)} · ${formatSleepMinutes(minutes)}`
+      : `${formatDateForDisplay(key)} · bez záznamu`;
+    cells.push(`<span class="sleep-heatmap-cell sleep-level-${level}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}"></span>`);
+  }
+  return `
+    <section class="sleep-year-card" aria-label="Roční mapa spánku">
+      <header class="sleep-year-head">
+        <div>
+          <span class="eyebrow">ROČNÍ KONZISTENCE</span>
+          <h2>Spánek v roce ${year}</h2>
+          <p>Každé políčko je jedna noc. Čím jasnější políčko, tím delší zaznamenaný spánek.</p>
+        </div>
+        <div class="sleep-year-stats">
+          <div><strong>${entries.length}</strong><span>nocí zapsáno</span></div>
+          <div><strong>${average ? formatSleepMinutes(average) : "–"}</strong><span>průměr</span></div>
+        </div>
+      </header>
+      <div class="sleep-heatmap-scroll" tabindex="0" aria-label="Mapa spánku, vodorovně posuvná">
+        <div class="sleep-heatmap-content">
+          <div class="sleep-heatmap-months">
+            ${["Led", "Úno", "Bře", "Dub", "Kvě", "Čvn", "Čvc", "Srp", "Zář", "Říj", "Lis", "Pro"].map((month) => `<span>${month}</span>`).join("")}
+          </div>
+          <div class="sleep-heatmap-body">
+            <div class="sleep-heatmap-days"><span>Po</span><span></span><span>St</span><span></span><span>Pá</span><span></span><span>Ne</span></div>
+            <div class="sleep-heatmap-grid">${cells.join("")}</div>
+          </div>
+        </div>
+      </div>
+      <footer class="sleep-heatmap-legend">
+        <span>Méně</span>
+        <i class="sleep-level-0"></i><i class="sleep-level-1"></i><i class="sleep-level-2"></i><i class="sleep-level-3"></i><i class="sleep-level-4"></i><i class="sleep-level-5"></i>
+        <span>Více</span>
+        <small>&lt;6 h · 6–7 h · 7–8 h · 8–9 h · 9+ h</small>
+      </footer>
+    </section>
+  `;
+}
+
+function buildSleepHistory(year) {
+  const history = new Map();
+  Object.entries(state.nutrition || {}).forEach(([weekStart, storedWeek]) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart) || weekStart === NUTRITION_PHASE_WEEK_START) return;
+    const week = normalizeNutritionWeek(storedWeek);
+    week.days.forEach((day, dayIndex) => {
+      const date = addDays(parseDate(weekStart), dayIndex);
+      if (date.getFullYear() !== year) return;
+      const minutes = sleepMinutesForDay(day);
+      if (minutes > 0) history.set(toDateInput(date), minutes);
+    });
+  });
+  return history;
+}
+
+function sleepHeatmapLevel(minutes) {
+  if (!minutes) return 0;
+  if (minutes < 360) return 1;
+  if (minutes < 420) return 2;
+  if (minutes < 480) return 3;
+  if (minutes < 540) return 4;
+  return 5;
 }
 
 function renderNutritionShell(nutrition, summary) {
@@ -4340,8 +4498,15 @@ async function handleClick(event) {
   if (action === "clear-day") {
     if (!confirmUi("Vycistit vybrany den?")) return;
     week[state.selectedDay] = createBlankWeek()[state.selectedDay];
-    save();
+    touchWorkoutDay(state.weekStart, state.selectedDay);
+    saveLocal();
+    markPendingWorkoutDeletion(state.weekStart, state.selectedDay);
+    if (cloud.session?.user?.id) {
+      removeFeedCacheRow(cloud.session.user.id, state.weekStart, state.selectedDay);
+    }
+    scheduleCloudSync();
     render();
+    showToast("Den byl vyčištěn a synchronizuje se.");
     return;
   }
 
@@ -5857,6 +6022,7 @@ function mergeCloudWeekWithPendingLocal(weekStart, cloudWeek, cloudRowsByDay = n
 }
 
 function shouldKeepLocalWorkout(localDay, cloudDay, pending = null, cloudRow = null) {
+  if (pending?.deleted) return true;
   const localStats = workoutContentStats(localDay);
   const cloudStats = workoutContentStats(cloudDay);
   if (!localStats.hasContent) return Boolean(pending?.fingerprint && !cloudStats.hasContent);
@@ -6612,6 +6778,12 @@ async function saveDayToCloud(weekStart, dayIndex, expectedPendingUpdatedAt = nu
   const pendingKey = workoutPendingKey(weekStart, dayIndex);
   const pending = expectedPendingUpdatedAt ? pendingSync.workouts[pendingKey] || null : null;
   const day = state.weeks[weekStart]?.[dayIndex];
+  if (pending?.deleted) {
+    await deleteDayFromCloud(weekStart, dayIndex);
+    clearPendingWorkoutSyncIfCurrent(weekStart, dayIndex, expectedPendingUpdatedAt);
+    saveLocal();
+    return;
+  }
   if (expectedPendingUpdatedAt) {
     const existing = await fetchExistingWorkoutDay(weekStart, dayIndex);
     if (
@@ -6862,6 +7034,7 @@ function workoutDayFingerprint(day) {
 }
 
 function shouldUseCloudWorkoutOverLocal(localDay, cloudRow, pending = null, expectedPendingUpdatedAt = "") {
+  if (pending?.deleted) return false;
   const localStats = workoutContentStats(localDay);
   const cloudDay = rowToDay(cloudRow);
   const cloudStats = workoutContentStats(cloudDay);
@@ -7560,13 +7733,15 @@ function summarizeDailyDashboard(day, nutritionDay = {}, goals = DEFAULT_NUTRITI
       label: "Sleep duration",
       value: formatSleepMinutes(sleepMinutes),
       meta: `Target ${formatSleepMinutes(sleepTarget)}`,
-      progress: progressToward(sleepMinutes, sleepTarget)
+      progress: progressToward(sleepMinutes, sleepTarget),
+      tone: sleepMinutes ? dashboardProgressTone(progressToward(sleepMinutes, sleepTarget)) : "neutral"
     },
     {
       label: "Sleep score",
       value: sleepQuality ? `${formatNumber(sleepQuality)}/100` : "Not logged",
       meta: "Higher is better",
-      progress: progressToward(sleepQuality, sleepScoreTarget)
+      progress: progressToward(sleepQuality, sleepScoreTarget),
+      tone: sleepQuality >= 80 ? "success" : sleepQuality >= 60 ? "active" : sleepQuality > 0 ? "warning" : "neutral"
     },
     {
       label: "Reading today",
@@ -7583,7 +7758,8 @@ function summarizeDailyDashboard(day, nutritionDay = {}, goals = DEFAULT_NUTRITI
         : `${formatNumber(stress)}/100`,
       meta: stress ? stressLevelLabel(stress) : "Add watch data in Routine",
       progress: 0,
-      neutral: true
+      neutral: true,
+      tone: stress ? stressTone(stress) : "neutral"
     }
   ];
   const scoredItems = [...trainingItems, ...nutritionItems, ...recoveryItems].filter((item) => !item.neutral);
@@ -7690,14 +7866,18 @@ function summarizeWeeklyDashboard(week, nutrition) {
       value: routine.sleepLoggedDays ? formatSleepMinutes(routine.averageSleepMinutes) : "Not logged",
       meta: `Across ${routine.sleepLoggedDays}/7 wake-up days`,
       progress: progressToward(routine.averageSleepMinutes, 450),
-      neutral: false
+      neutral: false,
+      tone: routine.sleepLoggedDays ? dashboardProgressTone(progressToward(routine.averageSleepMinutes, 450)) : "neutral"
     },
     {
       label: "Average sleep score",
       value: routine.qualityLoggedDays ? `${formatNumber(routine.averageQuality)}/100` : "Not logged",
       meta: `Across ${routine.qualityLoggedDays}/7 wake-up days`,
       progress: progressToward(routine.averageQuality, 100),
-      neutral: false
+      neutral: false,
+      tone: routine.qualityLoggedDays
+        ? routine.averageQuality >= 80 ? "success" : routine.averageQuality >= 60 ? "active" : "warning"
+        : "neutral"
     },
     dashboardTargetItem("Reading", routine.totalBookPages, weeklyBookPages, "pages", "weekly target"),
     dashboardTargetItem("Steps", routine.totalSteps, weeklySteps, "steps", "weekly target"),
@@ -7708,7 +7888,8 @@ function summarizeWeeklyDashboard(week, nutrition) {
         ? `${stressLevelLabel(routine.averageStress)} · ${routine.stressLoggedDays}/7 days logged`
         : "0/7 days logged",
       progress: 0,
-      neutral: true
+      neutral: true,
+      tone: routine.stressLoggedDays ? stressTone(routine.averageStress) : "neutral"
     }
   ];
   const scoredItems = [...trainingItems, ...nutritionItems, ...recoveryItems].filter((item) => !item.neutral);
@@ -7727,12 +7908,14 @@ function summarizeWeeklyDashboard(week, nutrition) {
 }
 
 function dashboardTargetItem(label, value, target, unit, targetLabel = "daily target") {
+  const progress = progressToward(value, target);
   return {
     label,
     value: `${formatNumber(value)} / ${formatNumber(target)} ${unit}`,
-    meta: target ? `${progressToward(value, target)}% of ${targetLabel}` : "No target set",
-    progress: progressToward(value, target),
-    neutral: !target
+    meta: target ? `${progress}% of ${targetLabel}` : "No target set",
+    progress,
+    neutral: !target,
+    tone: target ? dashboardProgressTone(progress) : "neutral"
   };
 }
 
@@ -7742,6 +7925,14 @@ function stressLevelLabel(value) {
   if (stress <= 29) return "Low";
   if (stress <= 59) return "Normal";
   return "High";
+}
+
+function stressTone(value) {
+  const stress = toNumber(value, 0);
+  if (stress <= 0) return "neutral";
+  if (stress <= 29) return "success";
+  if (stress <= 59) return "warning";
+  return "danger";
 }
 
 function progressToward(value, target) {
