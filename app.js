@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "95";
+const APP_VERSION = "96";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_LOCAL_UMD_URL = `./assets/supabase.min.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -52,6 +52,16 @@ const SLEEP_DAY_FIELDS = [
   "sleepNotes"
 ];
 const NUTRITION_DAY_FIELDS = [...FOOD_DAY_FIELDS, ...SLEEP_DAY_FIELDS];
+const DASHBOARD_CONSISTENCY_METRICS = [
+  "sleep",
+  "sleepScore",
+  "training",
+  "calories",
+  "macros",
+  "steps",
+  "reading",
+  "stress"
+];
 const DAY_LABELS = [
   ["Po", "Pondeli"],
   ["Ut", "Utery"],
@@ -99,6 +109,32 @@ const UI_TRANSLATION_ENTRIES = [
   ["Týdenní progres", "Weekly progress"],
   ["Denní", "Daily"],
   ["Týdenní", "Weekly"],
+  ["Roční konzistence", "Yearly consistency"],
+  ["Celoroční rytmus", "Yearly rhythm"],
+  ["Spánek", "Sleep"],
+  ["Skóre spánku", "Sleep score"],
+  ["Kalorie", "Calories"],
+  ["Makra", "Macros"],
+  ["Kroky", "Steps"],
+  ["Čtení", "Reading"],
+  ["Stres", "Stress"],
+  ["záznamů", "logs"],
+  ["průměr", "average"],
+  ["týdnů", "weeks"],
+  ["splněno", "adherence"],
+  ["sérií", "sets"],
+  ["hotovo", "completed"],
+  ["stran", "pages"],
+  ["Méně", "Less"],
+  ["Více", "More"],
+  ["Délka spánku podle rána, kdy ses probudil. Osm hodin a více je nejvyšší úroveň.", "Sleep duration by wake-up morning. Eight hours or more is the highest level."],
+  ["Denní skóre z hodinek. Vyšší hodnota znamená kvalitnější regeneraci.", "Daily watch score. A higher value means better recovery."],
+  ["Dokončené série vůči naplánovaným sériím v jednotlivých dnech.", "Completed sets compared with planned sets on each day."],
+  ["Vyhodnocují se za celý týden, takže rozdílné kalorie v jednotlivých dnech nevadí.", "Calories are evaluated across the full week, so different daily intakes are fine."],
+  ["Týdenní shoda bílkovin, sacharidů a tuků s nastavenými cíli.", "Weekly protein, carbohydrate and fat adherence against your targets."],
+  ["Denní kroky vůči cíli odvozenému z tvého týdenního limitu.", "Daily steps against the target derived from your weekly goal."],
+  ["Počítá se celý týden. Je jedno, jestli přečteš čtyři strany dnes a šest zítra.", "The full week counts. It does not matter whether you read four pages today and six tomorrow."],
+  ["Denní průměr z hodinek. Nižší stres znamená lepší úroveň regenerace.", "Daily watch average. Lower stress means better recovery."],
   ["Otevřít", "Open"],
   ["Dnes", "Today"],
   ["Předchozí týden", "Previous week", ["Predchozi tyden"]],
@@ -400,6 +436,13 @@ let cloud = {
   feed: [],
   leaderboard: [],
   posts: [],
+  yearConsistency: {
+    year: 0,
+    workoutRows: [],
+    nutritionRows: [],
+    loaded: false,
+    loading: false
+  },
   authNotice: null,
   pendingEmail: "",
   passwordRecovery: false,
@@ -469,6 +512,7 @@ function localizeInterfaceText(value, language = state?.language || "cs") {
       .replace(/Across (\d+)\/7 wake-up days/g, "Zapsáno $1/7 rán")
       .replace(/(\d+)\/7 days logged/g, "Zapsáno $1/7 dní")
       .replace(/^(Low|Normal|Moderate|High)(\s*[·-]\s*)/i, (_, level, separator) => `${({ low: "Nízký", normal: "Normální", moderate: "Normální", high: "Vysoký" })[level.toLowerCase()] || level}${separator}`)
+      .replace(/^Consistency in (\d{4})$/i, "Konzistence v roce $1")
       .replace(/^Night ending (.+?)\s+-\s+(.+)$/i, "Noc končící $1 - $2")
       .replace(/Target (.+)/g, "Cíl $1")
       .replace(/Weekly goal (.+) - tracked below/g, "Týdenní cíl $1")
@@ -493,6 +537,7 @@ function localizeInterfaceText(value, language = state?.language || "cs") {
       .replace(/Doplň ([\d\s,.]+) g bílkovin\./g, "Add $1 g of protein.")
       .replace(/Do denního cíle zbývá ([\d\s,.]+) kroků\./g, "$1 steps remain to reach today's target.")
       .replace(/^(Nízký|Normální|Vysoký)(\s*[·-]\s*)/i, (_, level, separator) => `${({ "nízký": "Low", "normální": "Normal", "vysoký": "High" })[level.toLowerCase()] || level}${separator}`)
+      .replace(/^Konzistence v roce (\d{4})$/i, "Consistency in $1")
       .replace(/^Noc končící (.+?)\s+-\s+(.+)$/i, "Night ending $1 - $2")
       .replace(/Cíl (.+)/g, "Target $1")
       .replace(/Týdenní cíl (.+)/g, "Weekly goal $1")
@@ -548,6 +593,9 @@ async function boot() {
   if (cloud.session) {
     await loadCloudData();
     await flushPendingSync();
+    if (state.activeView === "dashboard") {
+      await loadYearConsistencyData(getSelectedDate().getFullYear());
+    }
     saveLocal();
   }
   startCloudAutoRefresh();
@@ -770,6 +818,7 @@ function createDefaultState() {
     theme: "dark",
     language: "cs",
     dashboardPeriod: "daily",
+    dashboardMetric: "sleep",
     activeView: "plan",
     selectedDay: getDayIndex(new Date()),
     weekStart,
@@ -790,6 +839,7 @@ function createAccountState(theme = "dark") {
     theme,
     language: state?.language === "en" ? "en" : "cs",
     dashboardPeriod: "daily",
+    dashboardMetric: "sleep",
     activeView: "plan",
     selectedDay: getDayIndex(new Date()),
     weekStart,
@@ -809,6 +859,7 @@ function normalizeState(value, fallback = createDefaultState()) {
     theme: value?.theme === "light" ? "light" : "dark",
     language: value?.language === "en" ? "en" : "cs",
     dashboardPeriod: value?.dashboardPeriod === "weekly" ? "weekly" : "daily",
+    dashboardMetric: DASHBOARD_CONSISTENCY_METRICS.includes(value?.dashboardMetric) ? value.dashboardMetric : "sleep",
     activeView: APP_VIEWS.includes(value?.activeView) ? value.activeView : "plan",
     selectedDay: Number.isInteger(value?.selectedDay) ? value.selectedDay : fallback.selectedDay,
     weekStart: value?.weekStart || fallback.weekStart,
@@ -956,6 +1007,7 @@ function activateUserStorage(userId) {
   activeUserId = userId;
   activeStorageKey = userStorageKey(userId);
   activePendingSyncKey = userPendingSyncKey(userId);
+  cloud.yearConsistency = createEmptyYearConsistencyCache();
   const theme = state?.theme === "light" ? "light" : "dark";
   state = loadState(activeStorageKey, createAccountState(theme));
   pendingSync = loadPendingSync(activePendingSyncKey);
@@ -2440,6 +2492,8 @@ function renderDashboardShell(summary, weeklySummary) {
     : "Volno";
   const scoreLabel = dashboardScoreLabel(summary.score);
   const nextAction = dashboardNextAction(summary);
+  const scoreCircumference = 276.46;
+  const scoreOffset = Math.round((scoreCircumference * (1 - summary.score / 100)) * 100) / 100;
 
   const period = state.dashboardPeriod === "weekly" ? "weekly" : "daily";
   const dailyContent = `
@@ -2450,7 +2504,11 @@ function renderDashboardShell(summary, weeklySummary) {
           <p>${escapeHtml(summary.message)}</p>
         </div>
         <div class="dashboard-score dashboard-score-${escapeAttr(summary.tone)}">
-          <div class="dashboard-score-ring" style="--score:${summary.score}" aria-hidden="true">
+          <div class="dashboard-score-ring" aria-hidden="true">
+            <svg viewBox="0 0 100 100" focusable="false">
+              <circle class="dashboard-score-ring-track" cx="50" cy="50" r="44"></circle>
+              <circle class="dashboard-score-ring-value" cx="50" cy="50" r="44" style="--score-offset:${scoreOffset}"></circle>
+            </svg>
             <strong>${summary.score}%</strong>
           </div>
           <div class="dashboard-score-copy">
@@ -2608,71 +2666,110 @@ function dashboardNextAction(summary) {
 }
 
 function renderSleepYearHeatmap(year) {
-  const sleepHistory = buildSleepHistory(year);
-  const entries = [...sleepHistory.values()].filter((minutes) => minutes > 0);
-  const average = entries.length
-    ? Math.round(entries.reduce((sum, minutes) => sum + minutes, 0) / entries.length)
-    : 0;
+  const metric = DASHBOARD_CONSISTENCY_METRICS.includes(state.dashboardMetric)
+    ? state.dashboardMetric
+    : "sleep";
+  const config = consistencyMetricConfig(metric);
+  const sources = buildYearConsistencySources(year);
   const start = getWeekStart(new Date(year, 0, 1));
   const end = addDays(getWeekStart(new Date(year, 11, 31)), 6);
+  const todayKey = toDateInput(new Date());
   const cells = [];
+  const entries = [];
   for (let date = new Date(start); date <= end; date = addDays(date, 1)) {
     const key = toDateInput(date);
     const inYear = date.getFullYear() === year;
-    const minutes = inYear ? sleepHistory.get(key) || 0 : 0;
-    const level = inYear ? sleepHeatmapLevel(minutes) : -1;
-    const label = minutes
-      ? `${formatDateForDisplay(key)} · ${formatSleepMinutes(minutes)}`
-      : `${formatDateForDisplay(key)} · bez záznamu`;
-    cells.push(`<span class="sleep-heatmap-cell sleep-level-${level}" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}"></span>`);
+    const entry = inYear && key <= todayKey
+      ? consistencyEntryForDate(metric, date, sources)
+      : { logged: false, level: inYear ? 0 : -1, label: `${formatDateForDisplay(key)} · bez záznamu` };
+    if (inYear && entry.logged) entries.push(entry);
+    cells.push(`<span class="consistency-heatmap-cell consistency-level-${entry.level}" title="${escapeAttr(entry.label)}" aria-label="${escapeAttr(entry.label)}"></span>`);
   }
+  const stats = consistencyMetricSummary(metric, entries);
   return `
-    <section class="sleep-year-card" aria-label="Roční mapa spánku">
-      <header class="sleep-year-head">
+    <section class="consistency-year-card" aria-label="Roční konzistence">
+      <header class="consistency-year-head">
         <div>
           <span class="eyebrow">ROČNÍ KONZISTENCE</span>
-          <h2>Spánek v roce ${year}</h2>
-          <p>Každé políčko je jedna noc. Čím jasnější políčko, tím delší zaznamenaný spánek.</p>
+          <h2>${escapeHtml(config.label)} · ${year}</h2>
+          <p>${escapeHtml(config.description)}</p>
         </div>
-        <div class="sleep-year-stats">
-          <div><strong>${entries.length}</strong><span>nocí zapsáno</span></div>
-          <div><strong>${average ? formatSleepMinutes(average) : "–"}</strong><span>průměr</span></div>
+        <div class="consistency-year-stats">
+          <div><strong>${escapeHtml(stats.primary)}</strong><span>${escapeHtml(stats.primaryLabel)}</span></div>
+          <div><strong>${escapeHtml(stats.secondary)}</strong><span>${escapeHtml(stats.secondaryLabel)}</span></div>
         </div>
       </header>
-      <div class="sleep-heatmap-scroll" tabindex="0" aria-label="Mapa spánku, vodorovně posuvná">
-        <div class="sleep-heatmap-content">
-          <div class="sleep-heatmap-months">
+      <div class="consistency-metric-tabs" role="tablist" aria-label="Metrika roční konzistence">
+        ${DASHBOARD_CONSISTENCY_METRICS.map((metricName) => {
+          const metricConfig = consistencyMetricConfig(metricName);
+          return `<button class="consistency-metric-tab${metricName === metric ? " active" : ""}" data-action="set-dashboard-metric" data-metric="${escapeAttr(metricName)}" role="tab" aria-selected="${metricName === metric}">${escapeHtml(metricConfig.label)}</button>`;
+        }).join("")}
+      </div>
+      <div class="consistency-heatmap-scroll" tabindex="0" aria-label="Roční mapa, vodorovně posuvná">
+        <div class="consistency-heatmap-content">
+          <div class="consistency-heatmap-months">
             ${["Led", "Úno", "Bře", "Dub", "Kvě", "Čvn", "Čvc", "Srp", "Zář", "Říj", "Lis", "Pro"].map((month) => `<span>${month}</span>`).join("")}
           </div>
-          <div class="sleep-heatmap-body">
-            <div class="sleep-heatmap-days"><span>Po</span><span></span><span>St</span><span></span><span>Pá</span><span></span><span>Ne</span></div>
-            <div class="sleep-heatmap-grid">${cells.join("")}</div>
+          <div class="consistency-heatmap-body">
+            <div class="consistency-heatmap-days"><span>Po</span><span></span><span>St</span><span></span><span>Pá</span><span></span><span>Ne</span></div>
+            <div class="consistency-heatmap-grid">${cells.join("")}</div>
           </div>
         </div>
       </div>
-      <footer class="sleep-heatmap-legend">
+      <footer class="consistency-heatmap-legend">
         <span>Méně</span>
-        <i class="sleep-level-0"></i><i class="sleep-level-1"></i><i class="sleep-level-2"></i><i class="sleep-level-3"></i><i class="sleep-level-4"></i><i class="sleep-level-5"></i>
+        <i class="consistency-level-0"></i><i class="consistency-level-1"></i><i class="consistency-level-2"></i><i class="consistency-level-3"></i><i class="consistency-level-4"></i>
         <span>Více</span>
-        <small>&lt;6 h · 6–7 h · 7–8 h · 8–9 h · 9+ h</small>
+        <small>${escapeHtml(config.legend)}</small>
       </footer>
     </section>
   `;
 }
 
-function buildSleepHistory(year) {
-  const history = new Map();
-  Object.entries(state.nutrition || {}).forEach(([weekStart, storedWeek]) => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart) || weekStart === NUTRITION_PHASE_WEEK_START) return;
-    const week = normalizeNutritionWeek(storedWeek);
-    week.days.forEach((day, dayIndex) => {
-      const date = addDays(parseDate(weekStart), dayIndex);
-      if (date.getFullYear() !== year) return;
-      const minutes = sleepMinutesForDay(day);
-      if (minutes > 0) history.set(toDateInput(date), minutes);
-    });
-  });
-  return history;
+function consistencyMetricConfig(metric) {
+  const configs = {
+    sleep: {
+      label: "Spánek",
+      description: "Délka spánku podle rána, kdy ses probudil. Osm hodin a více je nejvyšší úroveň.",
+      legend: "<6 h · 6–7 h · 7–8 h · 8 h+"
+    },
+    sleepScore: {
+      label: "Skóre spánku",
+      description: "Denní skóre z hodinek. Vyšší hodnota znamená kvalitnější regeneraci.",
+      legend: "<50 · 50–69 · 70–84 · 85+"
+    },
+    training: {
+      label: "Trénink",
+      description: "Dokončené série vůči naplánovaným sériím v jednotlivých dnech.",
+      legend: "<50 % · 50–69 % · 70–89 % · 90 %+"
+    },
+    calories: {
+      label: "Kalorie",
+      description: "Vyhodnocují se za celý týden, takže rozdílné kalorie v jednotlivých dnech nevadí.",
+      legend: "Týdenní shoda s kalorickým cílem"
+    },
+    macros: {
+      label: "Makra",
+      description: "Týdenní shoda bílkovin, sacharidů a tuků s nastavenými cíli.",
+      legend: "Průměrná týdenní shoda maker"
+    },
+    steps: {
+      label: "Kroky",
+      description: "Denní kroky vůči cíli odvozenému z tvého týdenního limitu.",
+      legend: "<50 % · 50–69 % · 70–89 % · 90 %+"
+    },
+    reading: {
+      label: "Čtení",
+      description: "Počítá se celý týden. Je jedno, jestli přečteš čtyři strany dnes a šest zítra.",
+      legend: "Týdenní progres čtení"
+    },
+    stress: {
+      label: "Stres",
+      description: "Denní průměr z hodinek. Nižší stres znamená lepší úroveň regenerace.",
+      legend: "60+ vysoký · 30–59 normální · 1–29 nízký"
+    }
+  };
+  return configs[metric] || configs.sleep;
 }
 
 function sleepHeatmapLevel(minutes) {
@@ -2680,8 +2777,184 @@ function sleepHeatmapLevel(minutes) {
   if (minutes < 360) return 1;
   if (minutes < 420) return 2;
   if (minutes < 480) return 3;
-  if (minutes < 540) return 4;
-  return 5;
+  return 4;
+}
+
+function buildYearConsistencySources(year) {
+  const nutritionByWeek = new Map();
+  const workoutsByWeek = new Map();
+  if (cloud.yearConsistency.loaded && cloud.yearConsistency.year === year) {
+    cloud.yearConsistency.nutritionRows.forEach((row) => {
+      if (isRealNutritionWeekKey(row.week_start)) {
+        nutritionByWeek.set(row.week_start, normalizeNutritionWeek(row.payload));
+      }
+    });
+    cloud.yearConsistency.workoutRows.forEach((row) => {
+      const week = workoutsByWeek.get(row.week_start) || createBlankWeek();
+      week[Number(row.day_index)] = rowToDay(row);
+      workoutsByWeek.set(row.week_start, week);
+    });
+  }
+
+  Object.entries(state.nutrition || {}).forEach(([weekStart, storedWeek]) => {
+    if (!isRealNutritionWeekKey(weekStart) || !weekIntersectsYear(weekStart, year)) return;
+    const localWeek = normalizeNutritionWeek(storedWeek);
+    const cloudWeek = nutritionByWeek.get(weekStart);
+    nutritionByWeek.set(
+      weekStart,
+      cloudWeek ? mergeNutritionWeeks(localWeek, cloudWeek, { preferUntimed: "cloud" }) : localWeek
+    );
+  });
+
+  Object.entries(state.weeks || {}).forEach(([weekStart, storedWeek]) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart) || !weekIntersectsYear(weekStart, year)) return;
+    const localWeek = normalizeWeek(storedWeek);
+    const cloudWeek = workoutsByWeek.get(weekStart);
+    if (!cloudWeek) {
+      workoutsByWeek.set(weekStart, localWeek);
+      return;
+    }
+    DAY_LABELS.forEach((_, dayIndex) => {
+      const localDay = localWeek[dayIndex];
+      const cloudDay = cloudWeek[dayIndex];
+      const pending = pendingSync.workouts[workoutPendingKey(weekStart, dayIndex)];
+      const localTime = dayEditedTime(localDay);
+      const cloudTime = dayEditedTime(cloudDay);
+      if (
+        pending ||
+        (!hasDayCloudContent(cloudDay) && hasDayCloudContent(localDay)) ||
+        (localTime && localTime >= cloudTime)
+      ) {
+        cloudWeek[dayIndex] = localDay;
+      }
+    });
+  });
+  return { nutritionByWeek, workoutsByWeek };
+}
+
+function weekIntersectsYear(weekStart, year) {
+  const start = parseDate(weekStart);
+  const end = addDays(start, 6);
+  return start <= new Date(year, 11, 31) && end >= new Date(year, 0, 1);
+}
+
+function consistencyEntryForDate(metric, date, sources) {
+  const dateKey = toDateInput(date);
+  const weekStart = toDateInput(getWeekStart(date));
+  const dayIndex = getDayIndex(date);
+  const nutrition = sources.nutritionByWeek.get(weekStart) || createNutritionWeek();
+  const nutritionDay = nutrition.days[dayIndex] || {};
+  const workoutDay = (sources.workoutsByWeek.get(weekStart) || createBlankWeek())[dayIndex];
+  const weeklyMetric = ["calories", "macros", "reading"].includes(metric);
+  const base = { periodKey: weeklyMetric ? weekStart : dateKey, weekStart, dateKey };
+
+  if (metric === "sleep") {
+    const value = sleepMinutesForDay(nutritionDay);
+    return { ...base, logged: value > 0, value, level: sleepHeatmapLevel(value), label: `${formatDateForDisplay(dateKey)} · ${value ? formatSleepMinutes(value) : "bez záznamu"}` };
+  }
+  if (metric === "sleepScore") {
+    const logged = nutritionDay.sleepQuality !== "" && nutritionDay.sleepQuality !== null && nutritionDay.sleepQuality !== undefined;
+    const value = toNumber(nutritionDay.sleepQuality, 0);
+    const level = !logged ? 0 : value >= 85 ? 4 : value >= 70 ? 3 : value >= 50 ? 2 : 1;
+    return { ...base, logged, value, level, label: `${formatDateForDisplay(dateKey)} · ${logged ? `${formatNumber(value)}/100` : "bez záznamu"}` };
+  }
+  if (metric === "training") {
+    const workout = summarizeDay(workoutDay);
+    const logged = workout.totalSets > 0;
+    const score = logged ? progressToward(workout.completed, workout.totalSets) : 0;
+    return { ...base, logged, value: workout.completed, total: workout.totalSets, score, level: consistencyPercentLevel(score, logged), label: `${formatDateForDisplay(dateKey)} · ${logged ? `${workout.completed}/${workout.totalSets} sérií` : "bez tréninku"}` };
+  }
+  if (metric === "steps") {
+    const value = toNumber(nutritionDay.steps, 0);
+    const target = Math.max(1, Math.round(toNumber(nutrition.goals.weeklySteps, 0) / 7));
+    const logged = value > 0;
+    const score = progressToward(value, target);
+    return { ...base, logged, value, target, score, level: consistencyPercentLevel(score, logged), label: `${formatDateForDisplay(dateKey)} · ${logged ? `${formatNumber(value)} / ${formatNumber(target)} kroků` : "bez záznamu"}` };
+  }
+  if (metric === "stress") {
+    const logged = nutritionDay.stress !== "" && nutritionDay.stress !== null && nutritionDay.stress !== undefined;
+    const value = toNumber(nutritionDay.stress, 0);
+    const level = !logged ? 0 : value <= 29 ? 4 : value <= 59 ? 3 : value <= 74 ? 2 : 1;
+    return { ...base, logged, value, level, label: `${formatDateForDisplay(dateKey)} · ${logged ? `${formatNumber(value)}/100 · ${stressLevelLabel(value)}` : "bez záznamu"}` };
+  }
+
+  const intake = summarizeNutrition(nutrition);
+  const routine = summarizeSleep(nutrition);
+  const expectedDays = expectedDaysInWeek(weekStart);
+  if (metric === "calories") {
+    const target = toNumber(nutrition.goals.weeklyCalories, 0);
+    const targetToDate = target * (expectedDays / 7);
+    const logged = intake.daysLogged > 0 && expectedDays > 0;
+    const score = logged ? targetAdherence(intake.totalCalories, targetToDate) : 0;
+    return { ...base, logged, value: intake.totalCalories, target, score, level: consistencyPercentLevel(score, logged), label: `${weekRangeLabel(weekStart)} · ${logged ? `${formatNumber(intake.totalCalories)} / ${formatNumber(target)} kcal` : "bez záznamu"}` };
+  }
+  if (metric === "macros") {
+    const targets = [nutrition.goals.protein, nutrition.goals.carbs, nutrition.goals.fat].map((value) => toNumber(value, 0) * expectedDays);
+    const values = [intake.totalProtein, intake.totalCarbs, intake.totalFat];
+    const logged = values.some((value) => value > 0) && expectedDays > 0;
+    const scores = targets.map((target, index) => target > 0 ? targetAdherence(values[index], target) : 0).filter((_, index) => targets[index] > 0);
+    const score = logged && scores.length ? Math.round(scores.reduce((sum, value) => sum + value, 0) / scores.length) : 0;
+    return { ...base, logged, value: score, score, level: consistencyPercentLevel(score, logged), label: `${weekRangeLabel(weekStart)} · ${logged ? `${score}% shoda · P ${formatNumber(values[0])} / C ${formatNumber(values[1])} / F ${formatNumber(values[2])}` : "bez záznamu"}` };
+  }
+
+  const target = toNumber(nutrition.goals.bookPages, 0);
+  const logged = routine.totalBookPages > 0;
+  const score = progressToward(routine.totalBookPages, target);
+  return { ...base, logged, value: routine.totalBookPages, target, score, level: consistencyPercentLevel(score, logged), label: `${weekRangeLabel(weekStart)} · ${logged ? `${formatNumber(routine.totalBookPages)} / ${formatNumber(target)} stran` : "bez záznamu"}` };
+}
+
+function expectedDaysInWeek(weekStart) {
+  const start = parseDate(weekStart);
+  const today = parseDate(toDateInput(new Date()));
+  const end = addDays(start, 6);
+  if (end < today) return 7;
+  if (start > today) return 0;
+  return Math.max(1, Math.min(7, Math.round((today - start) / 86400000) + 1));
+}
+
+function targetAdherence(value, target) {
+  const normalizedTarget = toNumber(target, 0);
+  if (normalizedTarget <= 0) return 0;
+  const deviation = Math.abs(toNumber(value, 0) - normalizedTarget) / normalizedTarget;
+  return Math.max(0, Math.min(100, Math.round((1 - deviation) * 100)));
+}
+
+function consistencyPercentLevel(percent, logged) {
+  if (!logged) return 0;
+  const value = toNumber(percent, 0);
+  if (value >= 90) return 4;
+  if (value >= 70) return 3;
+  if (value >= 50) return 2;
+  return 1;
+}
+
+function consistencyMetricSummary(metric, entries) {
+  const uniqueEntries = ["calories", "macros", "reading"].includes(metric)
+    ? [...new Map(entries.map((entry) => [entry.periodKey, entry])).values()]
+    : entries;
+  if (!uniqueEntries.length) return { primary: "0", primaryLabel: "záznamů", secondary: "–", secondaryLabel: "průměr" };
+  if (metric === "sleep") {
+    const average = Math.round(uniqueEntries.reduce((sum, entry) => sum + entry.value, 0) / uniqueEntries.length);
+    return { primary: String(uniqueEntries.length), primaryLabel: "záznamů", secondary: formatSleepMinutes(average), secondaryLabel: "průměr" };
+  }
+  if (metric === "training") {
+    const completed = uniqueEntries.reduce((sum, entry) => sum + entry.value, 0);
+    const total = uniqueEntries.reduce((sum, entry) => sum + entry.total, 0);
+    return { primary: String(uniqueEntries.length), primaryLabel: "tréninků", secondary: `${completed}/${total}`, secondaryLabel: "sérií hotovo" };
+  }
+  if (metric === "reading") {
+    const total = uniqueEntries.reduce((sum, entry) => sum + entry.value, 0);
+    return { primary: String(uniqueEntries.length), primaryLabel: "týdnů", secondary: formatNumber(total), secondaryLabel: "stran" };
+  }
+  const useScore = ["calories", "macros"].includes(metric);
+  const average = Math.round(uniqueEntries.reduce((sum, entry) => sum + (useScore ? entry.score : entry.value), 0) / uniqueEntries.length);
+  const unit = metric === "steps" ? "kroků" : metric === "stress" || metric === "sleepScore" ? "/100" : "%";
+  return {
+    primary: String(uniqueEntries.length),
+    primaryLabel: ["calories", "macros"].includes(metric) ? "týdnů" : "záznamů",
+    secondary: `${formatNumber(average)}${unit}`,
+    secondaryLabel: ["calories", "macros"].includes(metric) ? "splněno" : "průměr"
+  };
 }
 
 function renderNutritionShell(nutrition, summary) {
@@ -4123,6 +4396,7 @@ async function handleClick(event) {
     if (nextView === "dashboard") {
       await loadCloudWeek();
       await loadCloudNutritionWeek();
+      await loadYearConsistencyData(getSelectedDate().getFullYear());
     }
     if (nextView === "nutrition" || nextView === "sleep") await loadCloudNutritionWeek();
     if (nextView === "feed") await loadCloudWeek();
@@ -4250,6 +4524,15 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "set-dashboard-metric") {
+    const metric = target.dataset.metric;
+    if (!DASHBOARD_CONSISTENCY_METRICS.includes(metric)) return;
+    state.dashboardMetric = metric;
+    saveLocal();
+    render();
+    return;
+  }
+
   if (action === "select-day") {
     state.selectedDay = Number(target.dataset.day);
     saveLocal();
@@ -4286,6 +4569,9 @@ async function handleClick(event) {
     await loadCloudNutritionWeek();
     await loadSocialData();
     await flushPendingSync();
+    if (state.activeView === "dashboard") {
+      await loadYearConsistencyData(getSelectedDate().getFullYear());
+    }
     saveLocal();
     render();
     return;
@@ -4304,6 +4590,9 @@ async function handleClick(event) {
     await loadCloudNutritionWeek();
     await loadSocialData();
     await flushPendingSync();
+    if (state.activeView === "dashboard") {
+      await loadYearConsistencyData(getSelectedDate().getFullYear());
+    }
     saveLocal();
     render();
     return;
@@ -4873,6 +5162,7 @@ function finishSignedOutState(theme = state.theme) {
   cloud.feed = [];
   cloud.leaderboard = [];
   cloud.posts = [];
+  cloud.yearConsistency = createEmptyYearConsistencyCache();
   cloud.authNotice = null;
   cloud.pendingEmail = "";
   cloud.passwordRecovery = false;
@@ -5028,6 +5318,7 @@ async function resetAccountData() {
   cloud.feed = [];
   cloud.leaderboard = [];
   cloud.posts = [];
+  cloud.yearConsistency = createEmptyYearConsistencyCache();
   saveLocal();
   savePendingSync();
   await loadSocialData();
@@ -5964,6 +6255,56 @@ async function loadCloudData() {
   await loadCloudWeek();
   await loadCloudNutritionWeek();
   await loadSocialData();
+}
+
+function createEmptyYearConsistencyCache() {
+  return {
+    year: 0,
+    workoutRows: [],
+    nutritionRows: [],
+    loaded: false,
+    loading: false
+  };
+}
+
+async function loadYearConsistencyData(year, { force = false } = {}) {
+  const normalizedYear = Number(year) || new Date().getFullYear();
+  if (!cloud.client || !cloud.session) return;
+  if (cloud.yearConsistency.loading) return;
+  if (!force && cloud.yearConsistency.loaded && cloud.yearConsistency.year === normalizedYear) return;
+
+  cloud.yearConsistency.loading = true;
+  const rangeStart = toDateInput(getWeekStart(new Date(normalizedYear, 0, 1)));
+  const rangeEnd = toDateInput(getWeekStart(new Date(normalizedYear, 11, 31)));
+  try {
+    const [workoutResult, nutritionResult] = await Promise.all([
+      cloud.client
+        .from("workout_days")
+        .select("week_start,day_index,title,focus,notes,visibility,payload,volume,completed_sets,total_sets,updated_at")
+        .eq("user_id", cloud.session.user.id)
+        .gte("week_start", rangeStart)
+        .lte("week_start", rangeEnd),
+      cloud.client
+        .from("nutrition_weeks")
+        .select("week_start,payload,updated_at")
+        .eq("user_id", cloud.session.user.id)
+        .gte("week_start", rangeStart)
+        .lte("week_start", rangeEnd)
+    ]);
+
+    if (workoutResult.error) throw workoutResult.error;
+    if (nutritionResult.error) throw nutritionResult.error;
+    cloud.yearConsistency = {
+      year: normalizedYear,
+      workoutRows: workoutResult.data || [],
+      nutritionRows: nutritionResult.data || [],
+      loaded: true,
+      loading: false
+    };
+  } catch (error) {
+    cloud.yearConsistency.loading = false;
+    console.warn("Year consistency data could not be loaded", error);
+  }
 }
 
 async function loadCloudWeek() {

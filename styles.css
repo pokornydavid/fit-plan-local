@@ -6437,3 +6437,411 @@ summary:focus-visible {
     justify-items: start;
   }
 }
+
+/* v96: focused performance dashboard and multi-metric yearly consistency */
+.dashboard-score,
+.dashboard-score-low,
+.dashboard-score-mid,
+.dashboard-score-high {
+  --score-color: #f59e0b;
+}
+
+.dashboard-score-ring {
+  position: relative;
+  overflow: visible;
+  background: none;
+  isolation: isolate;
+}
+
+.dashboard-score-ring::after {
+  display: none;
+}
+
+.dashboard-score-ring svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+
+.dashboard-score-ring circle {
+  fill: none;
+  stroke-width: 8;
+}
+
+.dashboard-score-ring-track {
+  stroke: var(--progress-track);
+}
+
+.dashboard-score-ring-value {
+  stroke: var(--score-color);
+  stroke-linecap: round;
+  stroke-dasharray: 276.46;
+  stroke-dashoffset: var(--score-offset);
+  animation: dashboard-score-draw 900ms cubic-bezier(0.2, 0.85, 0.25, 1) both;
+}
+
+.dashboard-score-ring strong {
+  color: var(--score-color);
+  animation: dashboard-score-pop 620ms 180ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+
+.dashboard-score-copy b {
+  color: var(--ink);
+}
+
+.dashboard-score-track span,
+.dashboard-achievement-track span {
+  background: var(--teal);
+  transform-origin: left center;
+  animation: dashboard-progress-grow 620ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.dashboard-quick-stat {
+  border-top-color: var(--line) !important;
+}
+
+.dashboard-quick-stat[class*="dashboard-tone-"] strong {
+  color: var(--ink);
+}
+
+.dashboard-quick-stat.dashboard-tone-success strong {
+  color: var(--accent);
+}
+
+.dashboard-section::before,
+.dashboard-section-plan::before,
+.dashboard-section-nutrition::before,
+.dashboard-section-sleep::before {
+  height: 2px;
+  background: color-mix(in srgb, var(--accent) 62%, var(--line));
+}
+
+.dashboard-tone-active,
+.dashboard-tone-warning {
+  --tone-color: var(--accent);
+}
+
+.dashboard-achievement[class*="dashboard-tone-"] .dashboard-achievement-copy strong {
+  color: var(--ink);
+}
+
+.dashboard-achievement.dashboard-tone-success .dashboard-achievement-copy strong {
+  color: var(--accent);
+}
+
+.dashboard-achievement.dashboard-tone-warning,
+.dashboard-achievement.dashboard-tone-danger {
+  background: transparent;
+}
+
+.dashboard-achievement.dashboard-tone-danger .dashboard-achievement-copy strong {
+  color: var(--red);
+}
+
+.dashboard-hero,
+.dashboard-weekly,
+.dashboard-section,
+.consistency-year-card {
+  animation: dashboard-surface-enter 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.dashboard-grid .dashboard-section:nth-child(1) {
+  animation-delay: 60ms;
+}
+
+.dashboard-grid .dashboard-section:nth-child(2) {
+  animation-delay: 110ms;
+}
+
+.dashboard-grid .dashboard-section:nth-child(3) {
+  animation-delay: 160ms;
+}
+
+.dashboard-section,
+.dashboard-day-tab,
+.consistency-metric-tab {
+  transition: border-color 180ms ease, background-color 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+@media (hover: hover) {
+  .dashboard-section:hover {
+    border-color: color-mix(in srgb, var(--accent) 24%, var(--line));
+    transform: translateY(-2px);
+  }
+}
+
+.consistency-year-card {
+  min-width: 0;
+  display: grid;
+  gap: 17px;
+  padding: 22px 24px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  animation-delay: 190ms;
+}
+
+.consistency-year-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 24px;
+}
+
+.consistency-year-head h2 {
+  margin: 4px 0 5px;
+  font-size: 1.25rem;
+}
+
+.consistency-year-head p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.consistency-year-stats {
+  display: flex;
+  gap: 24px;
+}
+
+.consistency-year-stats > div {
+  min-width: 76px;
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+}
+
+.consistency-year-stats strong {
+  color: var(--accent);
+  font-size: 1.2rem;
+}
+
+.consistency-year-stats span {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.consistency-metric-tabs {
+  display: flex;
+  gap: 5px;
+  padding: 4px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-3);
+  scrollbar-width: none;
+}
+
+.consistency-metric-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.consistency-metric-tab {
+  min-width: max-content;
+  min-height: 35px;
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.consistency-metric-tab:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+
+.consistency-metric-tab.active {
+  color: #071009;
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.consistency-heatmap-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.consistency-heatmap-content {
+  width: 790px;
+  max-width: none;
+}
+
+.consistency-heatmap-months {
+  margin-left: 31px;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.consistency-heatmap-body {
+  display: grid;
+  grid-template-columns: 24px auto;
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.consistency-heatmap-days {
+  display: grid;
+  grid-template-rows: repeat(7, 11px);
+  gap: 3px;
+  color: var(--muted);
+  font-size: 0.62rem;
+  line-height: 11px;
+}
+
+.consistency-heatmap-grid {
+  display: grid;
+  grid-template-rows: repeat(7, 11px);
+  grid-auto-flow: column;
+  grid-auto-columns: 11px;
+  gap: 3px;
+}
+
+.consistency-heatmap-cell,
+.consistency-heatmap-legend i {
+  display: block;
+  border: 1px solid rgba(255, 255, 255, 0.035);
+  border-radius: 2px;
+  background: var(--progress-track);
+  transition: transform 140ms ease, filter 140ms ease;
+}
+
+.consistency-heatmap-cell {
+  width: 11px;
+  height: 11px;
+}
+
+.consistency-heatmap-cell:hover {
+  z-index: 2;
+  filter: brightness(1.2);
+  transform: scale(1.35);
+}
+
+.consistency-level--1 {
+  visibility: hidden;
+}
+
+.consistency-level-0 {
+  background: var(--progress-track) !important;
+}
+
+.consistency-level-1 {
+  background: #12301c !important;
+}
+
+.consistency-level-2 {
+  background: #155e34 !important;
+}
+
+.consistency-level-3 {
+  background: #22c55e !important;
+}
+
+.consistency-level-4 {
+  background: #a3e635 !important;
+}
+
+.consistency-heatmap-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.consistency-heatmap-legend i {
+  width: 11px;
+  height: 11px;
+}
+
+.consistency-heatmap-legend small {
+  margin-left: 10px;
+  color: var(--muted);
+}
+
+@keyframes dashboard-score-draw {
+  from { stroke-dashoffset: 276.46; }
+  to { stroke-dashoffset: var(--score-offset); }
+}
+
+@keyframes dashboard-score-pop {
+  from { opacity: 0; transform: scale(0.82); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes dashboard-progress-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes dashboard-surface-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 820px) {
+  .consistency-year-card {
+    gap: 15px;
+    padding: 18px;
+  }
+
+  .consistency-year-head {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .consistency-year-stats {
+    justify-content: flex-start;
+  }
+
+  .consistency-year-stats > div {
+    justify-items: start;
+  }
+
+  .consistency-heatmap-legend {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 520px) {
+  .consistency-year-card {
+    padding: 16px;
+  }
+
+  .consistency-year-head h2 {
+    font-size: 1.12rem;
+  }
+
+  .consistency-heatmap-legend small {
+    flex-basis: 100%;
+    margin: 4px 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-score-ring-value,
+  .dashboard-score-ring strong,
+  .dashboard-score-track span,
+  .dashboard-achievement-track span,
+  .dashboard-hero,
+  .dashboard-weekly,
+  .dashboard-section,
+  .consistency-year-card {
+    animation: none !important;
+  }
+}
