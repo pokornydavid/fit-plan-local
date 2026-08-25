@@ -3,7 +3,7 @@ const PENDING_SYNC_KEY = "fit-plan-pending-sync-v1";
 const USER_STORAGE_PREFIX = `${STORAGE_KEY}:user:`;
 const USER_PENDING_SYNC_PREFIX = `${PENDING_SYNC_KEY}:user:`;
 const COPY_BACKUP_PREFIX = `${STORAGE_KEY}:copy-backup:`;
-const APP_VERSION = "93";
+const APP_VERSION = "94";
 const SUPABASE_CONFIG_URL = `./supabase-config.js?v=${APP_VERSION}`;
 const SUPABASE_LOCAL_UMD_URL = `./assets/supabase.min.js?v=${APP_VERSION}`;
 const SUPABASE_MODULE_URL = "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -77,6 +77,266 @@ const MUSCLES = [
   "Mobilita",
   "Full body"
 ];
+
+const UI_TRANSLATION_ENTRIES = [
+  ["Výkon a regenerace", "Performance and recovery tracker"],
+  ["Přehled", "Dashboard", ["Prehled"]],
+  ["Trénink", "Plan", ["Training"]],
+  ["Výživa", "Nutrition"],
+  ["Regenerace", "Routine", ["Recovery"]],
+  ["Účet", "Account"],
+  ["Denní přehled", "Daily dashboard", ["DAILY DASHBOARD"]],
+  ["Týdenní přehled", "Weekly overview", ["WEEKLY OVERVIEW"]],
+  ["Denní skóre", "Daily score"],
+  ["Vybrat den přehledu", "Select dashboard day"],
+  ["Denní detaily", "Daily details"],
+  ["Týdenní progres", "Weekly progress"],
+  ["Denní", "Daily"],
+  ["Týdenní", "Weekly"],
+  ["Otevřít", "Open"],
+  ["Dnes", "Today"],
+  ["Předchozí týden", "Previous week", ["Predchozi tyden"]],
+  ["Další týden", "Next week", ["Dalsi tyden"]],
+  ["Kopírovat den", "Copy day", ["Kopirovat den"]],
+  ["Ukázkový plán", "Demo plan"],
+  ["Týden", "Week", ["Tyden"]],
+  ["Volno", "Rest day"],
+  ["Den", "Day"],
+  ["Zaměření", "Focus", ["Zamereni"]],
+  ["Viditelnost", "Visibility"],
+  ["Veřejné", "Public"],
+  ["Soukromé", "Private"],
+  ["Vyčistit", "Clear"],
+  ["Zapisovat RPE", "Track RPE"],
+  ["Volitelné pro silové cviky", "Optional for strength exercises"],
+  ["Přidat cvik", "Add exercise", ["Pridat cvik"]],
+  ["Z knihovny", "From library"],
+  ["Vlastní cvik", "Custom exercise"],
+  ["Jednorázově", "One-off"],
+  ["Knihovna je prázdná", "Library is empty"],
+  ["Načíst základ", "Load defaults"],
+  ["Název cviku", "Exercise name"],
+  ["Přidat", "Add", ["Pridat"]],
+  ["Nový trénink", "New workout"],
+  ["Zatím bez cviků", "No exercises yet"],
+  ["Začni v panelu Přidat cvik.", "Start in the Add exercise panel."],
+  ["Cvik", "Exercise"],
+  ["Partie", "Muscle group"],
+  ["Hotovo", "Done"],
+  ["Série", "Set", ["Serie"]],
+  ["Opak.", "Reps"],
+  ["Poznámka", "Note", ["Poznamka"]],
+  ["Doba min", "Duration min"],
+  ["Rychlost", "Speed"],
+  ["Sklon", "Incline"],
+  ["Přehled", "Overview", ["Prehled"]],
+  ["Dnešní série", "Sets today", ["Dnesni serie"]],
+  ["Dnešní kg", "Volume today", ["Dnesni kg"]],
+  ["Tréninkové dny", "Training days", ["Treninkove dny"]],
+  ["Týdenní kg", "Weekly volume", ["Tydenni kg"]],
+  ["Partie dnes", "Muscles today"],
+  ["Rychlé šablony", "Quick templates"],
+  ["Knihovna cviků", "Exercise library"],
+  ["Volitelná", "Optional"],
+  ["Správa rychlého výběru", "Manage quick selection"],
+  ["Obnovit základ", "Restore defaults"],
+  ["Data a záloha", "Data and backup"],
+  ["Export", "Export"],
+  ["Import", "Import"],
+  ["Kalorie", "Calories"],
+  ["Bílkoviny", "Protein"],
+  ["Sacharidy", "Carbs"],
+  ["Tuky", "Fat"],
+  ["Aktuální kcal", "Current kcal"],
+  ["Zbývající týdenní kcal", "Remaining weekly kcal"],
+  ["Denní průměr", "Daily average"],
+  ["Zapsané dny", "Days logged"],
+  ["Týdenní cíle", "Weekly targets"],
+  ["Týdenní kcal", "Weekly kcal"],
+  ["Denní kcal", "Daily kcal"],
+  ["Aktuální makra", "Current macros"],
+  ["Denní záznam", "Daily log"],
+  ["Váha", "Weight", ["Vaha"]],
+  ["Poslední cheat meal", "Last cheat meal"],
+  ["Kopírovat minulý týden", "Copy last week"],
+  ["Vyčistit výživu", "Clear nutrition"],
+  ["Dieta / objem – progres", "Diet / bulk progress"],
+  ["Týdenní záznam váhy pro dietu, objem nebo udržování", "Weekly bodyweight log for a cut, bulk or maintenance phase"],
+  ["Název fáze", "Phase name", ["Nazev faze"]],
+  ["Režim", "Mode", ["Rezim"]],
+  ["Cílová váha", "Goal weight", ["Goal vaha"]],
+  ["Aktuální váha", "Current weight", ["Aktualni vaha"]],
+  ["Změna od startu", "Change from start", ["Zmena od startu"]],
+  ["Do cíle", "To goal", ["Od goalu"]],
+  ["Přidat týden", "Add week", ["+ Week"]],
+  ["Datum", "Date"],
+  ["Fotky formy", "Progress photos"],
+  ["Smazat týden", "Delete week"],
+  ["Porovnání formy", "Progress comparison", ["Compare formy"]],
+  ["Denní spánek a návyky", "Daily sleep and habits", ["Daily sleep log"]],
+  ["Čas ulehnutí", "Bedtime", ["Bed"]],
+  ["Probuzení", "Wake", ["Wake day"]],
+  ["Délka", "Duration"],
+  ["Skóre spánku", "Sleep score"],
+  ["Čím vyšší, tím lepší", "Higher is better"],
+  ["Stránky", "Pages", ["Book pages"]],
+  ["Kroky", "Steps"],
+  ["Stres", "Stress"],
+  ["Průměrný stres", "Average stress", ["Avg stress"]],
+  ["Průměrný spánek", "Average sleep"],
+  ["Průměrné skóre spánku", "Average sleep score"],
+  ["Nízký", "Low"],
+  ["Normální", "Normal", ["Moderate"]],
+  ["Vysoký", "High"],
+  ["Nezapsáno", "Not logged"],
+  ["Tréninkový výkon", "Workout execution"],
+  ["Denní příjem", "Daily intake"],
+  ["Spánek a návyky", "Sleep and habits"],
+  ["Splněné série", "Sets completed"],
+  ["Tréninkový objem", "Training volume"],
+  ["Zaměření tréninku", "Workout focus"],
+  ["Délka spánku", "Sleep duration"],
+  ["Spánek", "Sleep"],
+  ["Dnešní čtení", "Reading today"],
+  ["Týdenní trénink", "Training week"],
+  ["Plnění", "Execution"],
+  ["Týdenní výživa", "Nutrition week"],
+  ["Týdenní příjem", "Weekly intake"],
+  ["Týdenní regenerace", "Routine week"],
+  ["Regenerace a návyky", "Recovery & habits", ["Recovery & routine"]],
+  ["Týdenní kalorie", "Weekly calories"],
+  ["Týdenní čtení", "Reading"],
+  ["Týdenní kroky", "Weekly steps"],
+  ["Stránky / týden", "Book pages / week"],
+  ["Kroky / týden", "Steps / week"],
+  ["Skóre", "Score"],
+  ["Bílkoviny g", "Protein g"],
+  ["Sacharidy g", "Carbs g"],
+  ["Tuky g", "Fat g"],
+  ["Odpočinkový týden", "Rest week"],
+  ["Bez naplánovaných tréninků", "No workouts planned"],
+  ["Bez naplánovaného tréninku", "No workout planned"],
+  ["Bez názvu tréninku", "No workout title"],
+  ["Nenastaveno", "Not set"],
+  ["Přidej název tréninku v sekci Trénink", "Add a workout title in Plan"],
+  ["Cíl", "Target"],
+  ["Bez nastaveného cíle", "No target set"],
+  ["Cíle splněny", "targets reached"],
+  ["Přihlásit", "Sign in"],
+  ["Odhlásit", "Sign out"],
+  ["Vytvořit účet", "Create account"],
+  ["Nový účet", "New account"],
+  ["Vítej zpět", "Welcome back"],
+  ["E-mail", "Email"],
+  ["Heslo", "Password"],
+  ["Zapomenuté heslo?", "Forgot password?"],
+  ["Obnovit heslo", "Password reset"],
+  ["Nové heslo", "New password"],
+  ["Uložit nové heslo", "Save new password"],
+  ["Profil a přezdívka", "Profile and nickname"],
+  ["Jméno / přezdívka", "Name / nickname"],
+  ["Uložit profil", "Save profile"],
+  ["Nastavení účtu", "Account settings"],
+  ["Nebezpečná zóna", "Danger zone"],
+  ["Vymazat data účtu", "Delete account data"],
+  ["Vymazat moje data", "Delete my data"],
+  ["Obnovit lokální data", "Restore local data"],
+  ["Přenést do účtu", "Move to account"],
+  ["Přihlášení připraveno", "Login ready"],
+  ["Obnovit cloud", "Retry cloud"],
+  ["Obnovit", "Refresh"],
+  ["Výkon podle tebe", "Performance, made personal"],
+  ["Buduj lepší týdny.", "Build stronger weeks."],
+  ["Trénink, výživa a regenerace na jednom místě.", "One focused place for training, nutrition and recovery."],
+  ["Sleduj", "Track"],
+  ["Zlepšuj se", "Improve"],
+  ["Přístup k účtu", "Account access"],
+  ["Pokračuj ve svém progresu", "Continue your progress"],
+  ["Nastav si svůj systém", "Start your system"],
+  ["Na e-mail ti pošleme potvrzovací odkaz.", "We will send a confirmation link to your email."],
+  ["Každý účet má v Become Better vlastní data synchronizovaná přes Supabase.", "Become Better keeps each account separated and synced through Supabase."],
+  ["Tvoje heslo", "Your password"],
+  ["Alespoň 6 znaků", "At least 6 characters"],
+  ["Připravuji tvoje prostředí", "Preparing your workspace"],
+  ["Kontroluji přihlášení a načítám správná cloudová data.", "Checking your session and loading the right cloud data."],
+  ["Vytvářím tvůj účet", "Creating your account"],
+  ["Přihlašuji tě", "Signing you in"],
+  ["Připravuji soukromé prostředí pro tvůj progres.", "Preparing a private workspace for your progress."],
+  ["Připojuji účet a synchronizuji nejnovější data.", "Connecting your account and syncing the latest data."],
+  ["Výkonnostní cloud", "Performance cloud"],
+  ["Denní zaměření a týdenní progres", "Daily focus and weekly progress"],
+  ["Týdenní příjem a tělesná váha", "Weekly intake and bodyweight"],
+  ["Spánek, čtení a denní regenerace", "Sleep, reading and daily recovery"],
+  ["Profil a nastavení cloudu", "Profile and cloud settings"],
+  ["Naplánuj týden a zapiš každou sérii", "Plan the week and log every set"],
+  ["Světlý vzhled", "Light appearance"],
+  ["Tmavý vzhled", "Dark appearance"],
+  ["Cloud synchronizován", "Cloud synced"],
+  ["Lokální režim", "Local mode"],
+  ["Identita", "Identity"],
+  ["Jméno se ukazuje v aplikaci a ve sdílených přehledech.", "Name is shown in the app and shared overviews."],
+  ["Cloudová synchronizace", "Cloud sync"],
+  ["Tréninkový plán", "Training"],
+  ["Kontrola výživy", "Nutrition control"],
+  ["Týdenní systém kalorií", "Weekly calorie system"],
+  ["Plánuj kalorie, makra a tělesnou váhu na stejném místě jako trénink.", "Plan calories, macros and bodyweight in the same place as training. Built for cutting, bulking and clean weekly check-ins."],
+  ["Kalorie, makra, tělesná váha a rychlé poznámky", "Calories, macros, bodyweight and quick notes"],
+  ["Tracker regenerace", "Routine tracker"],
+  ["Spánek, čtení a regenerace", "Sleep, reading and recovery"],
+  ["Ruční záznam spánku, skóre z hodinek, průměrný stres, čtení a týdenní kroky.", "Manual sleep log, watch sleep score, average stress, book pages and weekly steps outside nutrition."],
+  ["Spánek zapisuj ke dni probuzení", "Log sleep on the day you wake up"],
+  ["Pondělí znamená noc z neděle na pondělí. Spánek tak zůstane u dne, který ovlivňuje.", "Monday means the night from Sunday to Monday. This keeps sleep next to the day it affects."],
+  ["Týdenní cíle návyků", "Weekly routine targets"],
+  ["Týdenní rytmus", "Weekly rhythm"],
+  ["Záznam spánku podle dne probuzení", "Sleep log by wake-up day"],
+  ["Ulehnutí předchozí večer, ranní probuzení, skóre, stres, čtení a kroky", "Previous evening bedtime, morning wake time, score, stress, reading and steps"],
+  ["Den probuzení", "Wake day"],
+  ["Ulehnutí", "Bed"],
+  ["Týdenní flexibilita, vyhodnocená podle cílů za celý týden.", "Flexible daily effort, measured against the targets that matter across the full week."],
+  ["Začni dnes zapisovat a denní přehled se vytvoří tady.", "Start logging today and your daily picture will build here."],
+  ["Výborná konzistence. Většinu dnešních cílů máš splněnou.", "Excellent consistency. Most of today's targets are handled."],
+  ["Jdeš správným směrem. Pár cílených kroků dokončí den.", "You are on track. A few focused actions can finish the day."],
+  ["Tempo roste. Dokonči zbývající cíle.", "Momentum is building. Keep closing the remaining targets."],
+  ["První záznamy jsou hotové. Další krok vyber v přehledu níže.", "A few logs are in. Use the details below to choose the next action."],
+  ["Série podle plánu", "of planned sets"],
+  ["Dny s alespoň jednou naplánovanou sérií", "Days with at least one planned set"],
+  ["Aktuální týdenní objem", "Current weekly volume"],
+  ["Přidej data z hodinek v Regeneraci", "Add watch data in Routine"],
+  ["Za tento týden nejsou data", "No data for this week"],
+  ["Obnovení hesla", "Password reset"],
+  ["Nastav nové heslo", "Set a new password"],
+  ["Po uložení se můžeš znovu přihlásit novým heslem.", "After saving it, you can sign in again with the new password."],
+  ["Pondělí", "Monday", ["Pondeli"]],
+  ["Úterý", "Tuesday", ["Utery"]],
+  ["Středa", "Wednesday", ["Streda"]],
+  ["Čtvrtek", "Thursday", ["Ctvrtek"]],
+  ["Pátek", "Friday", ["Patek"]],
+  ["Sobota", "Saturday"],
+  ["Neděle", "Sunday", ["Nedele"]],
+  ["Po", "Mon"],
+  ["Út", "Tue", ["Ut"]],
+  ["St", "Wed"],
+  ["Čt", "Thu", ["Ct"]],
+  ["Pá", "Fri", ["Pa"]],
+  ["So", "Sat"],
+  ["Ne", "Sun"],
+  ["Hrudník", "Chest", ["Hrudnik"]],
+  ["Záda", "Back", ["Zada"]],
+  ["Nohy", "Legs"],
+  ["Lýtka", "Calves", ["Lytka"]],
+  ["Ramena", "Shoulders"],
+  ["Trapézy", "Traps", ["Trapezy"]],
+  ["Biceps", "Biceps"],
+  ["Triceps", "Triceps"],
+  ["Předloktí", "Forearms", ["Predlokti"]],
+  ["Břicho", "Abs", ["Bricho"]],
+  ["Core", "Core"],
+  ["Kardio", "Cardio"],
+  ["Mobilita", "Mobility"],
+  ["Celé tělo", "Full body"]
+];
+
+const UI_TRANSLATION_LOOKUPS = buildInterfaceTranslationLookups();
 
 let activeStorageKey = STORAGE_KEY;
 let activePendingSyncKey = PENDING_SYNC_KEY;
@@ -156,6 +416,105 @@ boot();
 function uid() {
   if (crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function buildInterfaceTranslationLookups() {
+  const lookups = { cs: new Map(), en: new Map() };
+  UI_TRANSLATION_ENTRIES.forEach(([cs, en, aliases = []]) => {
+    [cs, en, ...aliases].forEach((source) => {
+      lookups.cs.set(source, cs);
+      lookups.en.set(source, en);
+    });
+  });
+  return lookups;
+}
+
+function localizeInterfaceText(value, language = state?.language || "cs") {
+  const original = String(value ?? "");
+  const trimmed = original.trim();
+  if (!trimmed) return original;
+  const lookup = UI_TRANSLATION_LOOKUPS[language] || UI_TRANSLATION_LOOKUPS.cs;
+  let translated = lookup.get(trimmed) || trimmed;
+
+  if (language === "cs") {
+    translated = translated
+      .replace(/^(Po|Ut|St|Ct|Pa|So|Ne)(?=\s+\d)/, (day) => ({ Po: "Po", Ut: "Út", St: "St", Ct: "Čt", Pa: "Pá", So: "So", Ne: "Ne" })[day])
+      .replace(/^(Pondeli|Utery|Streda|Ctvrtek|Patek|Sobota|Nedele)(?=\s|$)/, (day) => ({ Pondeli: "Pondělí", Utery: "Úterý", Streda: "Středa", Ctvrtek: "Čtvrtek", Patek: "Pátek", Sobota: "Sobota", Nedele: "Neděle" })[day])
+      .replace(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)(?=\s|$)/, (day) => ({ Monday: "Pondělí", Tuesday: "Úterý", Wednesday: "Středa", Thursday: "Čtvrtek", Friday: "Pátek", Saturday: "Sobota", Sunday: "Neděle" })[day])
+      .replace(/(\d+)% daily score/g, "$1 % denní skóre")
+      .replace(/(\d+)% of daily target/g, "$1 % denního cíle")
+      .replace(/(\d+)% of weekly target/g, "$1 % týdenního cíle")
+      .replace(/(\d+)% of planned sets/g, "$1 % naplánovaných sérií")
+      .replace(/(\d+)\/(\d+) targets reached/g, "$1/$2 cílů splněno")
+      .replace(/Across (\d+)\/7 wake-up days/g, "Zapsáno $1/7 rán")
+      .replace(/(\d+)\/7 days logged/g, "Zapsáno $1/7 dní")
+      .replace(/^(Low|Normal|Moderate|High)(\s*[·-]\s*)/i, (_, level, separator) => `${({ low: "Nízký", normal: "Normální", moderate: "Normální", high: "Vysoký" })[level.toLowerCase()] || level}${separator}`)
+      .replace(/^Night ending (.+?)\s+-\s+(.+)$/i, "Noc končící $1 - $2")
+      .replace(/Target (.+)/g, "Cíl $1")
+      .replace(/Weekly goal (.+) - tracked below/g, "Týdenní cíl $1")
+      .replace(/(\d+) exercises/g, "$1 cviků")
+      .replace(/(\d+) days/g, "$1 dní")
+      .replace(/(\d+) pages/g, "$1 stran")
+      .replace(/(\d+) sets/g, "$1 sérií")
+      .replace(/\bsteps\b/g, "kroků")
+      .replace(/kcal today/g, "kcal dnes")
+      .replace(/\bdaily target\b/gi, "denní cíl")
+      .replace(/\bweekly target\b/gi, "týdenní cíl");
+  } else {
+    translated = translated
+      .replace(/^(Po|Út|Ut|St|Čt|Ct|Pá|Pa|So|Ne)(?=\s+\d)/, (day) => ({ Po: "Mon", "Út": "Tue", Ut: "Tue", St: "Wed", "Čt": "Thu", Ct: "Thu", "Pá": "Fri", Pa: "Fri", So: "Sat", Ne: "Sun" })[day])
+      .replace(/(\d+) % denního cíle/g, "$1% of daily target")
+      .replace(/(\d+) % týdenního cíle/g, "$1% of weekly target")
+      .replace(/(\d+) % naplánovaných sérií/g, "$1% of planned sets")
+      .replace(/(\d+)\/(\d+) cílů splněno/g, "$1/$2 targets reached")
+      .replace(/Zapsáno (\d+)\/7 rán/g, "Across $1/7 wake-up days")
+      .replace(/Zapsáno (\d+)\/7 dní/g, "$1/7 days logged")
+      .replace(/^(Nízký|Normální|Vysoký)(\s*[·-]\s*)/i, (_, level, separator) => `${({ "nízký": "Low", "normální": "Normal", "vysoký": "High" })[level.toLowerCase()] || level}${separator}`)
+      .replace(/^Noc končící (.+?)\s+-\s+(.+)$/i, "Night ending $1 - $2")
+      .replace(/Cíl (.+)/g, "Target $1")
+      .replace(/Týdenní cíl (.+)/g, "Weekly goal $1")
+      .replace(/(\d+) cviků/g, "$1 exercises")
+      .replace(/(\d+) dní/g, "$1 days")
+      .replace(/(\d+) stran/g, "$1 pages")
+      .replace(/(\d+) sérií/g, "$1 sets")
+      .replace(/(\d+) % denní skóre/g, "$1% daily score")
+      .replace(/\bkroků\b/g, "steps")
+      .replace(/\bdenní cíl\b/gi, "daily target")
+      .replace(/\btýdenní cíl\b/gi, "weekly target");
+  }
+
+  if (language === "cs") {
+    translated = translated
+      .replace(/(\d+h(?:\s*\d+m)?)\s+sleep\b/gi, "$1 spánku")
+      .replace(/(\d+)\/(\d+)\s+serii\s+hotovo/gi, "$1/$2 sérií hotovo")
+      .replace(/^\+\s*Serie$/i, "+ Série");
+  } else {
+    translated = translated
+      .replace(/(\d+h(?:\s*\d+m)?)\s+spánku\b/gi, "$1 sleep")
+      .replace(/(\d+)\/(\d+)\s+sérií\s+hotovo/gi, "$1/$2 sets completed")
+      .replace(/^\+\s*Série$/i, "+ Set");
+  }
+
+  return original.replace(trimmed, translated);
+}
+
+function applyInterfaceLanguage() {
+  const language = state?.language === "en" ? "en" : "cs";
+  document.documentElement.lang = language;
+  const walker = document.createTreeWalker(app, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach((node) => {
+    if (node.parentElement?.closest(".language-toggle")) return;
+    node.nodeValue = localizeInterfaceText(node.nodeValue, language);
+  });
+  app.querySelectorAll("[placeholder], [title], [aria-label]").forEach((element) => {
+    if (element.closest(".language-toggle")) return;
+    ["placeholder", "title", "aria-label"].forEach((attribute) => {
+      if (!element.hasAttribute(attribute)) return;
+      element.setAttribute(attribute, localizeInterfaceText(element.getAttribute(attribute), language));
+    });
+  });
 }
 
 async function boot() {
@@ -386,6 +745,8 @@ function createDefaultState() {
   const weekStart = toDateInput(getWeekStart(new Date()));
   return {
     theme: "dark",
+    language: "cs",
+    dashboardPeriod: "daily",
     activeView: "plan",
     selectedDay: getDayIndex(new Date()),
     weekStart,
@@ -404,6 +765,8 @@ function createAccountState(theme = "dark") {
   const weekStart = toDateInput(getWeekStart(new Date()));
   return {
     theme,
+    language: state?.language === "en" ? "en" : "cs",
+    dashboardPeriod: "daily",
     activeView: "plan",
     selectedDay: getDayIndex(new Date()),
     weekStart,
@@ -421,6 +784,8 @@ function createAccountState(theme = "dark") {
 function normalizeState(value, fallback = createDefaultState()) {
   const next = {
     theme: value?.theme === "light" ? "light" : "dark",
+    language: value?.language === "en" ? "en" : "cs",
+    dashboardPeriod: value?.dashboardPeriod === "weekly" ? "weekly" : "daily",
     activeView: APP_VIEWS.includes(value?.activeView) ? value.activeView : "plan",
     selectedDay: Number.isInteger(value?.selectedDay) ? value.selectedDay : fallback.selectedDay,
     weekStart: value?.weekStart || fallback.weekStart,
@@ -460,6 +825,7 @@ function normalizeWeek(week) {
       focus: String(source.focus || ""),
       notes: String(source.notes || ""),
       visibility: normalizeVisibility(source.visibility),
+      useRpe: source.useRpe !== false,
       lastEditedAt: normalizeIsoTimestamp(source.lastEditedAt || source.updatedAt || ""),
       exercises: Array.isArray(source.exercises)
         ? source.exercises.map(normalizeExercise)
@@ -796,6 +1162,7 @@ function createBlankWeek() {
         focus: "",
         notes: "",
         visibility: "public",
+        useRpe: true,
         lastEditedAt: "",
         exercises: []
       }
@@ -840,6 +1207,7 @@ function createNutritionPhase() {
     mode: "diet",
     goalWeight: "",
     updatedAt: "",
+    deletedRowIds: [],
     rows: Array.from({ length: DEFAULT_PHASE_WEEKS }, (_, index) => createNutritionPhaseRow(index + 1))
   };
 }
@@ -856,6 +1224,14 @@ function createNutritionPhaseRow(index) {
     photos: [],
     photoOrder: []
   };
+}
+
+function nextNutritionPhaseRowIndex(phase = state.nutritionPhase) {
+  const highestIndex = (phase?.rows || []).reduce((highest, row) => {
+    const match = String(row?.weekLabel || "").match(/(\d+)/);
+    return match ? Math.max(highest, Number(match[1]) || 0) : highest;
+  }, 0);
+  return highestIndex + 1;
 }
 
 function normalizeNutritionWeek(nutrition) {
@@ -1086,8 +1462,14 @@ function findStoredNutritionPhase(nutrition) {
 
 function normalizeNutritionPhase(phase) {
   const fallback = createNutritionPhase();
-  const rows = Array.isArray(phase?.rows) && phase.rows.length ? phase.rows : fallback.rows;
-  const normalizedRows = rows.map((row, index) => {
+  const deletedRowIds = [...new Set(
+    (Array.isArray(phase?.deletedRowIds) ? phase.deletedRowIds : [])
+      .map((id) => String(id || ""))
+      .filter(Boolean)
+  )].slice(-500);
+  const deletedSet = new Set(deletedRowIds);
+  const rows = Array.isArray(phase?.rows) ? phase.rows : fallback.rows;
+  const normalizedRows = rows.filter((row) => !deletedSet.has(String(row?.id || ""))).map((row, index) => {
     const photos = normalizePhasePhotos(row.photos);
     const photoOrder = normalizePhotoOrder(row.photoOrder);
     const orderedPhotos = orderPhasePhotos(photos, photoOrder);
@@ -1106,15 +1488,12 @@ function normalizeNutritionPhase(phase) {
         : photoOrder
     };
   });
-  while (normalizedRows.length < DEFAULT_PHASE_WEEKS) {
-    normalizedRows.push(createNutritionPhaseRow(normalizedRows.length + 1));
-  }
-
   return {
     title: String(phase?.title || ""),
     mode: ["diet", "bulk", "maintain"].includes(phase?.mode) ? phase.mode : "diet",
     goalWeight: normalizeOptionalNumber(phase?.goalWeight),
     updatedAt: normalizeIsoTimestamp(phase?.updatedAt || ""),
+    deletedRowIds,
     rows: normalizedRows
   };
 }
@@ -1245,17 +1624,25 @@ function stripPhasePhotosForCloud(phase) {
 function mergePhasePhotos(targetPhase, sourcePhase) {
   const target = normalizeNutritionPhase(targetPhase);
   const source = normalizeNutritionPhase(sourcePhase);
+  const deletedRowIds = [...new Set([...target.deletedRowIds, ...source.deletedRowIds])].slice(-500);
+  const deletedSet = new Set(deletedRowIds);
   const sourceRows = source.rows;
   const rowsById = new Map(sourceRows.map((row) => [row.id, row]));
   const rowsByLabel = new Map(sourceRows.map((row) => [row.weekLabel, row]));
   const phaseBase = shouldUseSourcePhase(source, target) ? source : target;
+  const combinedRows = [...target.rows];
+  source.rows.forEach((row) => {
+    const exists = combinedRows.some((item) => item.id === row.id || item.weekLabel === row.weekLabel);
+    if (!exists) combinedRows.push(row);
+  });
   return {
     ...target,
     title: phaseBase.title,
     mode: phaseBase.mode,
     goalWeight: phaseBase.goalWeight,
     updatedAt: phaseBase.updatedAt,
-    rows: target.rows.map((row) => {
+    deletedRowIds,
+    rows: combinedRows.filter((row) => !deletedSet.has(row.id)).map((row) => {
       const sourceRow = rowsById.get(row.id) || rowsByLabel.get(row.weekLabel);
       const rowBase = shouldUseSourcePhaseRow(sourceRow, row) ? sourceRow : row;
       const order = normalizePhotoOrder([...normalizePhotoOrder(sourceRow?.photoOrder), ...normalizePhotoOrder(row.photoOrder)]);
@@ -1408,9 +1795,13 @@ function render() {
   if (publicContent) {
     app.innerHTML = `
       <div class="public-app">
+        <div class="public-language-bar">
+          <button class="btn compact language-toggle" data-action="toggle-language" aria-label="Změnit jazyk">${state.language === "cs" ? "EN" : "CZ"}</button>
+        </div>
         ${publicContent}
       </div>
     `;
+    applyInterfaceLanguage();
     return;
   }
 
@@ -1470,6 +1861,7 @@ function render() {
           </nav>
         </div>
         <div class="top-actions">
+          <button class="btn compact language-toggle" data-action="toggle-language" aria-label="Změnit jazyk">${state.language === "cs" ? "EN" : "CZ"}</button>
           ${renderCloudBadge()}
         </div>
         </div>
@@ -1509,6 +1901,7 @@ function render() {
       ${renderPhaseCompareViewer()}
     </div>
   `;
+  applyInterfaceLanguage();
   pendingViewAnimation = false;
   restoreDayListScroll(preservedDayListScroll);
 }
@@ -2010,8 +2403,8 @@ function renderDashboardShell(summary, weeklySummary) {
     ? `${summary.workout.completed}/${summary.workout.totalSets} sets`
     : "Rest day";
 
-  return `
-    <main class="dashboard-shell">
+  const period = state.dashboardPeriod === "weekly" ? "weekly" : "daily";
+  const dailyContent = `
       <section class="dashboard-hero">
         <div class="dashboard-hero-copy">
           <span class="eyebrow">DAILY DASHBOARD</span>
@@ -2050,7 +2443,14 @@ function renderDashboardShell(summary, weeklySummary) {
         ${renderDashboardSection("Nutrition", "Daily intake", "nutrition", summary.nutritionItems)}
         ${renderDashboardSection("Recovery & routine", "Sleep and habits", "sleep", summary.recoveryItems)}
       </section>
-      ${renderWeeklyDashboard(weeklySummary)}
+  `;
+  return `
+    <main class="dashboard-shell">
+      <div class="dashboard-period-switch" role="tablist" aria-label="Období dashboardu">
+        <button class="dashboard-period-button${period === "daily" ? " active" : ""}" data-action="set-dashboard-period" data-period="daily" role="tab" aria-selected="${period === "daily"}">Denní</button>
+        <button class="dashboard-period-button${period === "weekly" ? " active" : ""}" data-action="set-dashboard-period" data-period="weekly" role="tab" aria-selected="${period === "weekly"}">Týdenní</button>
+      </div>
+      ${period === "weekly" ? renderWeeklyDashboard(weeklySummary) : dailyContent}
     </main>
   `;
 }
@@ -3207,6 +3607,11 @@ function renderDayWorkspace(day, summary) {
             </select>
           </label>
           <button class="btn compact danger-quiet" data-action="clear-day">Vyčistit</button>
+          <label class="day-rpe-setting">
+            <input type="checkbox" data-field="day-use-rpe" ${day.useRpe !== false ? "checked" : ""}>
+            <span>Zapisovat RPE</span>
+            <small>Volitelné pro silové cviky</small>
+          </label>
         </div>
         ${renderMobileDaySummary(day, summary)}
         <div class="add-strip exercise-composer">
@@ -3246,7 +3651,7 @@ function renderDayWorkspace(day, summary) {
           </div>
         </div>
         <div class="exercise-list" data-exercise-list>
-          ${day.exercises.length ? day.exercises.map((exercise, index) => renderExercise(exercise, index, day.exercises.length)).join("") : renderEmptyDay(summary)}
+          ${day.exercises.length ? day.exercises.map((exercise, index) => renderExercise(exercise, index, day.exercises.length, day.useRpe !== false)).join("") : renderEmptyDay(summary)}
         </div>
       </section>
     </main>
@@ -3286,8 +3691,9 @@ function renderEmptyDay() {
   `;
 }
 
-function renderExercise(exercise, index, totalExercises) {
+function renderExercise(exercise, index, totalExercises, useRpe = true) {
   const labels = setMetricLabels(exercise);
+  const showRpe = isCardioExercise(exercise) || useRpe;
   return `
     <article class="exercise-card" data-exercise-id="${exercise.id}" data-exercise-index="${index}">
       <div class="exercise-head">
@@ -3321,12 +3727,12 @@ function renderExercise(exercise, index, totalExercises) {
               <th>Serie</th>
               <th>${labels.reps}</th>
               <th>${labels.weight}</th>
-              <th>${labels.rpe}</th>
+              ${showRpe ? `<th>${labels.rpe}</th>` : ""}
               <th></th>
             </tr>
           </thead>
           <tbody>
-            ${exercise.sets.map((set, index) => renderSetRow(exercise, set, index)).join("")}
+            ${exercise.sets.map((set, index) => renderSetRow(exercise, set, index, showRpe)).join("")}
           </tbody>
         </table>
       </div>
@@ -3338,7 +3744,7 @@ function renderExercise(exercise, index, totalExercises) {
   `;
 }
 
-function renderSetRow(exercise, set, index) {
+function renderSetRow(exercise, set, index, showRpe = true) {
   const exerciseId = exercise.id;
   const labels = setMetricLabels(exercise);
   return `
@@ -3349,7 +3755,7 @@ function renderSetRow(exercise, set, index) {
       <td class="set-number">${index + 1}</td>
       <td><input class="input" type="number" min="0" step="${labels.repsStep}" data-field="set-reps" data-exercise-id="${exerciseId}" data-set-id="${set.id}" value="${escapeAttr(set.reps)}" aria-label="${escapeAttr(labels.reps)}"></td>
       <td><input class="input" type="number" min="0" step="${labels.weightStep}" data-field="set-weight" data-exercise-id="${exerciseId}" data-set-id="${set.id}" value="${escapeAttr(set.weight)}" aria-label="${escapeAttr(labels.weight)}"></td>
-      <td><input class="input" type="number" min="${labels.rpeMin}" max="${labels.rpeMax}" step="${labels.rpeStep}" data-field="set-rpe" data-exercise-id="${exerciseId}" data-set-id="${set.id}" value="${escapeAttr(set.rpe)}" aria-label="${escapeAttr(labels.rpe)}"></td>
+      ${showRpe ? `<td><input class="input" type="number" min="${labels.rpeMin}" max="${labels.rpeMax}" step="${labels.rpeStep}" data-field="set-rpe" data-exercise-id="${exerciseId}" data-set-id="${set.id}" value="${escapeAttr(set.rpe)}" aria-label="${escapeAttr(labels.rpe)}"></td>` : ""}
       <td><button class="icon-btn" data-action="remove-set" data-exercise-id="${exerciseId}" data-set-id="${set.id}" title="Smazat sérii" aria-label="Smazat sérii">×</button></td>
     </tr>
   `;
@@ -3672,6 +4078,20 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "toggle-language") {
+    state.language = state.language === "cs" ? "en" : "cs";
+    saveLocal();
+    render();
+    return;
+  }
+
+  if (action === "set-dashboard-period") {
+    state.dashboardPeriod = target.dataset.period === "weekly" ? "weekly" : "daily";
+    saveLocal();
+    render();
+    return;
+  }
+
   if (action === "select-day") {
     state.selectedDay = Number(target.dataset.day);
     saveLocal();
@@ -3754,7 +4174,7 @@ async function handleClick(event) {
 
   if (action === "add-phase-row") {
     const phase = state.nutritionPhase;
-    const row = createNutritionPhaseRow(phase.rows.length + 1);
+    const row = createNutritionPhaseRow(nextNutritionPhaseRowIndex(phase));
     touchNutritionPhaseRow(row);
     phase.rows.push(row);
     saveNutritionPhase();
@@ -3765,6 +4185,7 @@ async function handleClick(event) {
   if (action === "remove-phase-row") {
     const phase = state.nutritionPhase;
     const rowId = target.dataset.rowId;
+    phase.deletedRowIds = [...new Set([...(phase.deletedRowIds || []), rowId])].filter(Boolean).slice(-500);
     if (phase.rows.length <= 1) {
       phase.rows = [createNutritionPhaseRow(1)];
       openPhasePhotoRows.clear();
@@ -3908,7 +4329,7 @@ async function handleClick(event) {
   }
 
   if (action === "sample-week") {
-    if (!confirm("Prepsat aktualni tyden ukazkovym planem?")) return;
+    if (!confirmUi("Prepsat aktualni tyden ukazkovym planem?")) return;
     state.weeks[state.weekStart] = createSampleWeek();
     saveWorkoutWeek();
     render();
@@ -3917,7 +4338,7 @@ async function handleClick(event) {
   }
 
   if (action === "clear-day") {
-    if (!confirm("Vycistit vybrany den?")) return;
+    if (!confirmUi("Vycistit vybrany den?")) return;
     week[state.selectedDay] = createBlankWeek()[state.selectedDay];
     save();
     render();
@@ -3977,7 +4398,7 @@ async function handleClick(event) {
     exercise.sets.push(createSet({
       reps: last.reps,
       weight: last.weight,
-      rpe: last.rpe
+      rpe: day.useRpe === false && !isCardioExercise(exercise) ? 0 : last.rpe
     }));
     save();
     render();
@@ -3988,14 +4409,14 @@ async function handleClick(event) {
     const exercise = findExercise(target.dataset.exerciseId);
     if (!exercise) return;
     exercise.sets = exercise.sets.filter((set) => set.id !== target.dataset.setId);
-    if (!exercise.sets.length) exercise.sets.push(createSet());
+    if (!exercise.sets.length) exercise.sets.push(createSet({ rpe: day.useRpe === false && !isCardioExercise(exercise) ? 0 : 7 }));
     save();
     render();
     return;
   }
 
   if (action === "template-ppl") {
-    if (!confirm("Prepsat aktualni tyden sablonou PPL?")) return;
+    if (!confirmUi("Prepsat aktualni tyden sablonou PPL?")) return;
     state.weeks[state.weekStart] = createSampleWeek();
     saveWorkoutWeek();
     render();
@@ -4003,7 +4424,7 @@ async function handleClick(event) {
   }
 
   if (action === "template-fullbody") {
-    if (!confirm("Prepsat aktualni tyden full body sablonou?")) return;
+    if (!confirmUi("Prepsat aktualni tyden full body sablonou?")) return;
     state.weeks[state.weekStart] = createFullBodyWeek();
     saveWorkoutWeek();
     render();
@@ -4418,8 +4839,8 @@ async function resetAccountData() {
     showToast("Nejdriv se prihlas.");
     return;
   }
-  if (!confirm("Fakt vymazat tvoje workouty a nutrition data z tohoto uctu?")) return;
-  if (!confirm("Posledni kontrola: data se smazi z cloudu i z tohoto zarizeni.")) return;
+  if (!confirmUi("Fakt vymazat tvoje workouty a nutrition data z tohoto uctu?")) return;
+  if (!confirmUi("Posledni kontrola: data se smazi z cloudu i z tohoto zarizeni.")) return;
 
   const userId = cloud.session.user.id;
   const [workoutResult, nutritionResult, photoResult, postResult] = await Promise.allSettled([
@@ -4461,7 +4882,7 @@ async function recoverLocalDataToAccount() {
     render();
     return;
   }
-  if (!confirm("Prenest lokalni data z tohoto zarizeni do uctu? Cloud se nesmaze, jen se doplni novejsi lokalni zaznamy.")) return;
+  if (!confirmUi("Prenest lokalni data z tohoto zarizeni do uctu? Cloud se nesmaze, jen se doplni novejsi lokalni zaznamy.")) return;
 
   let recoveredWorkouts = 0;
   let recoveredNutrition = 0;
@@ -4520,8 +4941,8 @@ async function recoverLocalDataToAccount() {
 }
 
 async function resetNutritionData() {
-  if (!confirm("Vycistit nutrition data jen pro aktualni ucet? Treningovy plan zustane.")) return;
-  if (!confirm("Posledni kontrola: smaze se nutrition cloud i lokalni nutrition na tomhle uctu.")) return;
+  if (!confirmUi("Vycistit nutrition data jen pro aktualni ucet? Treningovy plan zustane.")) return;
+  if (!confirmUi("Posledni kontrola: smaze se nutrition cloud i lokalni nutrition na tomhle uctu.")) return;
 
   if (cloud.client && cloud.session) {
     const [nutritionResult, photoResult] = await Promise.allSettled([
@@ -4730,6 +5151,13 @@ function handleChange(event) {
 
   if (field === "day-visibility") {
     day.visibility = event.target.value;
+    save();
+    render();
+    return;
+  }
+
+  if (field === "day-use-rpe") {
+    day.useRpe = event.target.checked;
     save();
     render();
     return;
@@ -5885,7 +6313,7 @@ async function deleteCommunityPost(postId) {
   if (!cloud.client || !cloud.session || !postId) return;
   const post = cloud.posts.find((item) => item.id === postId);
   if (!post || post.user_id !== cloud.session.user.id) return;
-  if (!confirm("Smazat post?")) return;
+  if (!confirmUi("Smazat post?")) return;
 
   const { error } = await cloud.client
     .from("community_posts")
@@ -6214,6 +6642,7 @@ async function saveDayToCloud(weekStart, dayIndex, expectedPendingUpdatedAt = nu
   day.lastEditedAt = normalizeIsoTimestamp(payloadLastEditedAt) || payloadLastEditedAt;
   const payload = {
     exercises: day.exercises,
+    useRpe: day.useRpe !== false,
     lastEditedAt: day.lastEditedAt
   };
 
@@ -6329,7 +6758,7 @@ function createLocalSelectedFeedRow() {
     day_index: state.selectedDay,
     title: day.title || "",
     focus: day.focus || "",
-    payload: { exercises: day.exercises, lastEditedAt: dayEditedAt(day) },
+    payload: { exercises: day.exercises, useRpe: day.useRpe !== false, lastEditedAt: dayEditedAt(day) },
     volume: summary.volume,
     completed_sets: summary.completed,
     total_sets: summary.totalSets,
@@ -6367,6 +6796,7 @@ function rowToDay(row) {
       focus: row.focus,
       notes: row.notes,
       visibility: normalizeVisibility(row.visibility),
+      useRpe: row.payload?.useRpe !== false,
       lastEditedAt: row.payload?.lastEditedAt || row.payload?.updatedAt || row.updated_at,
       exercises: row.payload?.exercises || []
     }
@@ -6416,6 +6846,7 @@ function workoutDayFingerprint(day) {
     focus: normalized.focus,
     notes: normalized.notes,
     visibility: normalizeVisibility(normalized.visibility),
+    useRpe: normalized.useRpe !== false,
     exercises: normalized.exercises.map((exercise) => ({
       name: exercise.name,
       muscle: exercise.muscle,
@@ -6455,10 +6886,16 @@ async function saveNutritionWeekToCloud(weekStart, expectedPendingUpdatedAt = nu
   if (expectedPendingUpdatedAt) {
     if (existing && isCloudRowNewer(existing.updated_at, expectedPendingUpdatedAt)) {
       if (weekStart === NUTRITION_PHASE_WEEK_START) {
-        state.nutritionPhase = normalizeNutritionPhase(existing.payload?.phase);
-        clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
-        saveLocal();
-        return;
+        const cloudPhase = normalizeNutritionPhase(existing.payload?.phase);
+        const mergedPhase = mergePhasePhotos(state.nutritionPhase, cloudPhase);
+        state.nutritionPhase = mergedPhase;
+        const mergedPayload = JSON.stringify(stripPhasePhotosForCloud(mergedPhase));
+        const cloudPayload = JSON.stringify(stripPhasePhotosForCloud(cloudPhase));
+        if (mergedPayload === cloudPayload) {
+          clearPendingNutritionSyncIfCurrent(weekStart, expectedPendingUpdatedAt);
+          saveLocal();
+          return;
+        }
       } else {
         const cloudNutrition = normalizeNutritionWeek(existing.payload);
         const localNutrition = state.nutrition[weekStart]
@@ -6641,7 +7078,7 @@ async function copyWorkoutByDates(formElement) {
 
   const targetWeek = state.weeks[targetWeekStart] || createBlankWeek();
   const targetDay = targetWeek[targetDayIndex];
-  if (hasDayPlanData(targetDay) && !confirm(`Prepsat jen ${DAY_LABELS[targetDayIndex][1]} ${formatShortDate(targetDate)} zkopirovanym treningem? Ostatni dny zustanou.`)) {
+  if (hasDayPlanData(targetDay) && !confirmUi(`Prepsat jen ${DAY_LABELS[targetDayIndex][1]} ${formatShortDate(targetDate)} zkopirovanym treningem? Ostatni dny zustanou.`)) {
     return;
   }
 
@@ -7086,7 +7523,7 @@ function summarizeDailyDashboard(day, nutritionDay = {}, goals = DEFAULT_NUTRITI
   const bookTarget = Math.max(1, Math.ceil(toNumber(goals?.bookPages, 0) / 7));
   const stepsTarget = Math.max(1, Math.round(toNumber(goals?.weeklySteps, 0) / 7));
   const sleepTarget = 450;
-  const sleepScoreTarget = 80;
+  const sleepScoreTarget = 100;
   const plannedWorkout = workout.totalSets > 0;
 
   const trainingItems = [
@@ -7128,7 +7565,7 @@ function summarizeDailyDashboard(day, nutritionDay = {}, goals = DEFAULT_NUTRITI
     {
       label: "Sleep score",
       value: sleepQuality ? `${formatNumber(sleepQuality)}/100` : "Not logged",
-      meta: `Target ${sleepScoreTarget}/100`,
+      meta: "Higher is better",
       progress: progressToward(sleepQuality, sleepScoreTarget)
     },
     {
@@ -7144,7 +7581,7 @@ function summarizeDailyDashboard(day, nutritionDay = {}, goals = DEFAULT_NUTRITI
       value: nutritionDay?.stress === "" || nutritionDay?.stress === null || nutritionDay?.stress === undefined
         ? "Not logged"
         : `${formatNumber(stress)}/100`,
-      meta: stress ? (stress <= 35 ? "Low" : stress <= 65 ? "Moderate" : "High") : "Add watch data in Routine",
+      meta: stress ? stressLevelLabel(stress) : "Add watch data in Routine",
       progress: 0,
       neutral: true
     }
@@ -7259,7 +7696,7 @@ function summarizeWeeklyDashboard(week, nutrition) {
       label: "Average sleep score",
       value: routine.qualityLoggedDays ? `${formatNumber(routine.averageQuality)}/100` : "Not logged",
       meta: `Across ${routine.qualityLoggedDays}/7 wake-up days`,
-      progress: progressToward(routine.averageQuality, 80),
+      progress: progressToward(routine.averageQuality, 100),
       neutral: false
     },
     dashboardTargetItem("Reading", routine.totalBookPages, weeklyBookPages, "pages", "weekly target"),
@@ -7267,7 +7704,9 @@ function summarizeWeeklyDashboard(week, nutrition) {
     {
       label: "Average stress",
       value: routine.stressLoggedDays ? `${formatNumber(routine.averageStress)}/100` : "Not logged",
-      meta: `${routine.stressLoggedDays}/7 days logged`,
+      meta: routine.stressLoggedDays
+        ? `${stressLevelLabel(routine.averageStress)} · ${routine.stressLoggedDays}/7 days logged`
+        : "0/7 days logged",
       progress: 0,
       neutral: true
     }
@@ -7295,6 +7734,14 @@ function dashboardTargetItem(label, value, target, unit, targetLabel = "daily ta
     progress: progressToward(value, target),
     neutral: !target
   };
+}
+
+function stressLevelLabel(value) {
+  const stress = toNumber(value, 0);
+  if (stress <= 0) return "Not logged";
+  if (stress <= 29) return "Low";
+  if (stress <= 59) return "Normal";
+  return "High";
 }
 
 function progressToward(value, target) {
@@ -7460,9 +7907,13 @@ function exportData() {
 
 function showToast(message) {
   clearTimeout(toastTimer);
-  toast.textContent = message;
+  toast.textContent = localizeInterfaceText(message);
   toast.classList.add("show");
   toastTimer = setTimeout(() => toast.classList.remove("show"), 3200);
+}
+
+function confirmUi(message) {
+  return confirm(localizeInterfaceText(message));
 }
 
 function showCloudError(prefix, error, patchFile = "supabase-progress-photos.sql") {

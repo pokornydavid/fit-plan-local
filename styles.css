@@ -3212,6 +3212,123 @@ button.cloud-badge:hover {
   }
 }
 
+/* v94: dashboard modes, language control and optional RPE */
+.language-toggle {
+  min-width: 46px;
+  justify-content: center;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.public-language-bar {
+  position: fixed;
+  z-index: 30;
+  top: 14px;
+  right: 14px;
+}
+
+.day-head > .danger-quiet {
+  width: 100%;
+  min-height: 42px;
+  align-self: end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0;
+}
+
+@media (min-width: 821px) {
+  .day-head {
+    grid-template-columns: minmax(160px, 1.2fr) minmax(160px, 1fr) minmax(130px, 0.7fr) minmax(78px, 90px);
+  }
+}
+
+.day-rpe-setting {
+  grid-column: 1 / -1;
+  min-height: 36px;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.day-rpe-setting input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--teal);
+}
+
+.day-rpe-setting span {
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.day-rpe-setting small {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.dashboard-period-switch {
+  width: min(300px, 100%);
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  justify-self: center;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-3);
+}
+
+.dashboard-period-button {
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.dashboard-period-button:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+
+.dashboard-period-button.active {
+  color: var(--teal-ink);
+  border-color: var(--teal);
+  background: var(--teal);
+}
+
+.dashboard-shell > .dashboard-weekly {
+  padding-top: 0;
+  border-top: 0;
+}
+
+@media (max-width: 820px) {
+  .public-language-bar {
+    top: 10px;
+    right: 10px;
+  }
+
+  .day-rpe-setting {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .day-rpe-setting small {
+    grid-column: 2;
+  }
+
+  .dashboard-period-switch {
+    width: 100%;
+  }
+}
+
 @media (max-width: 520px) {
   .public-app {
     padding: 10px;
@@ -5897,5 +6014,21 @@ summary:focus-visible {
     align-items: flex-start;
     flex-direction: column;
     gap: 4px;
+  }
+}
+
+/* v94 final overrides: keep the day action aligned after legacy responsive rules. */
+.day-head > .danger-quiet {
+  width: 100%;
+  min-height: 42px;
+  align-self: end;
+  justify-self: stretch;
+  margin-bottom: 0;
+}
+
+@media (max-width: 520px) {
+  .app[data-active-view="plan"] .day-head > .danger-quiet {
+    width: 100%;
+    justify-self: stretch;
   }
 }
